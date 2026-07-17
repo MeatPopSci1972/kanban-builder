@@ -204,24 +204,38 @@
   .pill-image { background: #2a1a20; color: var(--pink);   border: 1px solid #ff6b8a30; }
 
   /* ══════════════════════════ PROPERTIES PANEL ══════════════════════════ */
-  #panel {
-    width: 0; max-width: 340px; flex-shrink: 0;
-    background: var(--surface2);
-    border: 1px solid var(--accent); border-radius: var(--r2);
-    display: flex; flex-direction: column;
-    overflow: hidden;
+#panel {
+    width: 0;
+    max-width: 340px;
+    flex-shrink: 0;
+    background: var(--surface2);         /* Visually different background from standard columns */
+    border: 1px solid var(--accent);     /* Distinct border styling to stand out */
+    border-radius: var(--r2);
+    display: flex;                       /* Kept as flex; animation is driven by width/opacity */
+    flex-direction: column;
+    overflow: hidden;                    /* Essential to prevent text popping out during slide */
     opacity: 0;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-  
-  /* Smooth sliding animation using width and opacity */
-  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
-              opacity 0.25s ease, 
-              margin 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    /* ADD THIS: Hide it from layout metrics entirely when closed */
+    visibility: hidden;
+    margin-left: 0;
+    
+    /* Smooth sliding animation using width and opacity */
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
+                opacity 0.25s ease, 
+                margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                visibility 0.35s step-end; /* step-end ensures visibility triggers instantly when closing */
   }
-  #panel.open { 
-    margin-left: 4px;
+  #panel.open {
     width: 340px;
-    opacity: 1; 
+    opacity: 1;
+    margin-left: 14px;                   /* Match your board's column gap spacing */
+    visibility: visible;
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
+                opacity 0.25s ease, 
+                margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                visibility 0s step-start; /* step-start makes it visible immediately when opening */
   }
   #panel-head {
     display: flex;
@@ -1544,6 +1558,12 @@ function renderCard(task) {
   $card.addEventListener('click', () => {
 
     if(uiState.selectedTaskId === task.id) {
+      const mainLayout = document.getElementById("main");
+      
+      if (mainLayout && $panel.parentElement != mainLayout) {
+        mainLayout.appendChild($panel);
+      }
+
       $panel.classList.remove('open'); 
       uiState.selectedTaskId = null; 
       return;
@@ -1624,6 +1644,13 @@ function moveTaskByKeyboard(taskId, delta) {
 function renderPanel(state) {
   const task = state.tasks.find(t => t.id === uiState.selectedTaskId);
   if (!task) { 
+
+    const mainLayout = document.getElementById("main");
+    if (mainLayout && $panel.parentElement != mainLayout) {
+      mainLayout.appendChild($panel);
+    }
+
+
     $panel.classList.remove('open'); 
     uiState.selectedTaskId = null; 
     return; 
