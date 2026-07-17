@@ -205,20 +205,43 @@
 
   /* ══════════════════════════ PROPERTIES PANEL ══════════════════════════ */
   #panel {
-    width: 340px; flex-shrink: 0;
-    background: var(--surface);
-    border-left: 1px solid var(--border);
-    display: none; flex-direction: column;
-    overflow-y: auto;
+    width: 0; max-width: 340px; flex-shrink: 0;
+    background: var(--surface2);
+    border: 1px solid var(--accent); border-radius: var(--r2);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  
+  /* Smooth sliding animation using width and opacity */
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
+              opacity 0.25s ease, 
+              margin 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  #panel.open { display: flex; }
+  #panel.open { 
+    margin-left: 4px;
+    width: 340px;
+    opacity: 1; 
+  }
   #panel-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 14px; border-bottom: 1px solid var(--border);
-    position: sticky; top: 0; background: var(--surface); z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface2);
+    z-index: 2;
   }
   #panel-head h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
-  #panel-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  #panel-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+  }
   .field { display: flex; flex-direction: column; }
   .readonly-value { font-size: 12px; color: var(--text-dim); padding: 6px 0; }
 
@@ -1518,7 +1541,18 @@ function renderCard(task) {
     }
   }
 
-  $card.addEventListener('click', () => { uiState.selectedTaskId = task.id; render(); });
+  $card.addEventListener('click', () => {
+
+    if(uiState.selectedTaskId === task.id) {
+      $panel.classList.remove('open'); 
+      uiState.selectedTaskId = null; 
+      return;
+    }
+
+    uiState.selectedTaskId = task.id; 
+    render(); 
+  });
+
   $card.addEventListener('keydown', e => {
     if (e.key === 'Enter') { uiState.selectedTaskId = task.id; render(); }
     if (e.key === 'ArrowUp')   { e.preventDefault(); moveTaskByKeyboard(task.id, -1); }
@@ -1589,7 +1623,17 @@ function moveTaskByKeyboard(taskId, delta) {
 /* ── Properties panel ── */
 function renderPanel(state) {
   const task = state.tasks.find(t => t.id === uiState.selectedTaskId);
-  if (!task) { $panel.classList.remove('open'); uiState.selectedTaskId = null; return; }
+  if (!task) { 
+    $panel.classList.remove('open'); 
+    uiState.selectedTaskId = null; 
+    return; 
+  }
+  
+  const columnElement = document.querySelector(`[data-col-id="${task.columnId}"]`);
+  const nextColumn = columnElement.nextSibling;
+
+  $board.insertBefore($panel, nextColumn);
+
   $panel.classList.add('open');
   $panelBody.innerHTML = '';
 
@@ -1958,6 +2002,24 @@ document.getElementById('btn-tests-close').addEventListener('click', () =>
   document.getElementById('tests-modal').classList.remove('open'));
 document.getElementById('tests-modal').addEventListener('click', e => {
   if (e.target.id === 'tests-modal') e.target.classList.remove('open');
+});
+
+// Dismiss properties panel when clicking outside active workspace zones
+document.addEventListener('click', (event) => {
+  // If the panel isn't open, there is nothing to dismiss
+  if (!$panel || !$panel.classList.contains('open')) return;
+
+  // Check where the click originated
+  const clickedCard = event.target.closest('.card');
+  const clickedPanel = event.target.closest('#panel');
+  const clickedAddColumn = event.target.closest('#btn-add-col');
+  const clickedModal = event.target.closest('#dialog-modal, #tests-modal');
+
+  // If the click is outside the card, panel, add buttons, and active modals, close it
+  if (!clickedCard && !clickedPanel && !clickedAddColumn && !clickedModal) {
+    uiState.selectedTaskId = null; 
+    render();
+  }
 });
 
 /* ── boot ── */
