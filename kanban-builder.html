@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KanbanBuilder v0.1.0</title>
+<style>
+  /* ══════════════════════════ THEMES ══════════════════════════ */
+  :root {
+    --bg:        #0d1420;
+    --surface:   #131c2b;
+    --surface2:  #1a2536;
+    --surface3:  #223047;
+    --text:      #dbe6f2;
+    --text-dim:  #7d8ca1;
+    --border:    #24344d;
+    --border2:   #33476a;
+    --accent:    #4af0c4;
+    --violet:    #7b6fff;
+    --pink:      #ff6b8a;
+    --amber:     #f0c44a;
+    --danger:    #ff5c5c;
+    --r1: 4px;
+    --r2: 8px;
+    --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+    --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+  body {
+    font-family: var(--mono);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  button {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border2); border-radius: var(--r1);
+    padding: 6px 10px; cursor: pointer;
+  }
+  button:hover { background: var(--surface3); }
+  button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  button.danger  { border-color: var(--danger); color: var(--danger); }
+
+  input, select, textarea {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border2); border-radius: var(--r1);
+    padding: 6px 8px; width: 100%;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  label { display: block; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+
+  /* ══════════════════════════ TOOLBAR ══════════════════════════ */
+  #toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #app-title { font-size: 14px; font-weight: 700; letter-spacing: .04em; }
+  #app-title .accent { color: var(--accent); }
+  #app-version { font-size: 10px; color: var(--text-dim); margin-right: auto; padding-left: 8px; }
+  #stats { font-size: 11px; color: var(--text-dim); margin-right: 8px; }
+  #toolbar button svg { vertical-align: -2px; margin-right: 2px; }
+  #toolbar-divider { width: 1px; height: 20px; background: var(--border2); margin: 0 2px; }
+  #gh-repo-label { display: inline; font-size: 11px; color: var(--text-dim); text-transform: none; letter-spacing: normal; margin: 0; }
+
+  /* ══════════════════════════ BOARD ══════════════════════════ */
+  #board-wrap {
+    flex: 1; overflow-x: auto; overflow-y: hidden;
+    position: relative;
+  }
+  #board-wrap::before {
+    content: '';
+    position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(var(--surface2) 1px, transparent 1px),
+      linear-gradient(90deg, var(--surface2) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: .35;
+  }
+  #board {
+    position: relative;
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 16px; height: 100%;
+    min-width: min-content;
+  }
+
+  .column {
+    width: 280px; flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r2);
+    display: flex; flex-direction: column;
+    max-height: 100%;
+  }
+  .column.drop-active {
+    border: 1px dashed var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .column.col-reorder-dragging { opacity: .35; }
+  .column.col-drop-before { box-shadow: -3px 0 0 0 var(--violet); }
+  .column.col-drop-after  { box-shadow:  3px 0 0 0 var(--violet); }
+  .col-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .col-grab {
+    cursor: grab; color: var(--text-dim); font-size: 13px;
+    line-height: 1; padding: 2px 4px; border-radius: var(--r1);
+    flex-shrink: 0; user-select: none;
+  }
+  .col-grab:hover { color: var(--text); background: var(--surface2); }
+  .col-grab:focus-visible { outline: none; box-shadow: var(--focus-ring); color: var(--text); }
+  .col-grab:active { cursor: grabbing; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; padding: 0; margin: -1px;
+  }
+  .col-name {
+    font-weight: 700; font-size: 12px; letter-spacing: .03em;
+    cursor: text; flex: 1;
+    padding: 2px 4px; border-radius: var(--r1);
+  }
+  .col-name:hover { background: var(--surface2); }
+  .col-name-input { flex: 1; padding: 2px 4px; font-weight: 700; }
+  .col-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px;
+    font-size: 10px; font-weight: 700;
+    background: #1a2a40; color: var(--accent); border: 1px solid #4af0c430;
+  }
+  .col-del {
+    background: none; border: none; padding: 2px 6px;
+    color: var(--text-dim); font-size: 14px; line-height: 1;
+  }
+  .col-del:hover { color: var(--danger); background: var(--surface2); }
+
+  .col-body {
+    padding: 10px; display: flex; flex-direction: column; gap: 8px;
+    overflow-y: auto; flex: 1; min-height: 60px;
+  }
+  .col-empty {
+    color: var(--text-dim); font-size: 11px; text-align: center;
+    padding: 14px 6px; border: 1px dashed var(--border2); border-radius: var(--r1);
+  }
+  .col-foot { padding: 10px; border-top: 1px solid var(--border); }
+  .col-foot button { width: 100%; }
+
+  /* ══════════════════════════ CARDS ══════════════════════════ */
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--r1);
+    padding: 10px;
+    cursor: grab;
+  }
+  .card:active { cursor: grabbing; }
+  .card:hover { border-color: var(--accent); }
+  .card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card.dragging { opacity: .4; }
+  .card.card-drop-before { box-shadow: 0 -3px 0 0 var(--violet); }
+  .card.card-drop-after  { box-shadow: 0  3px 0 0 var(--violet); }
+  .card.task-drop-before { box-shadow: 0 -3px 0 0 var(--violet); }
+  .card.task-drop-after  { box-shadow: 0  3px 0 0 var(--violet); }
+  .card-title { font-size: 12px; font-weight: 500; word-break: break-word; }
+  .card-created { font-size: 10px; color: var(--text-dim); margin-top: 6px; }
+  .card-props { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .card-imgs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .card-imgs img {
+    max-width: 100%; max-height: 90px; border-radius: var(--r1);
+    border: 1px solid var(--border2); display: block;
+  }
+  .img-missing {
+    font-size: 10px; color: var(--pink); word-break: break-all;
+    border: 1px dashed #ff6b8a50; border-radius: var(--r1); padding: 4px 6px;
+  }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 700;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pill-text  { background: #1a2a40; color: var(--accent); border: 1px solid #4af0c430; }
+  .pill-text-large { background: #1a2a40; color: var(--accent); border: 1px solid #4af0c430; }
+  .pill-date  { background: #2a2a1a; color: var(--amber);  border: 1px solid #f0c44a30; }
+  .pill-link  { background: #221a40; color: var(--violet); border: 1px solid #7b6fff30; }
+  a.pill { text-decoration: none; cursor: pointer; }
+  a.pill:hover { text-decoration: underline; }
+  .pill-image { background: #2a1a20; color: var(--pink);   border: 1px solid #ff6b8a30; }
+
+  /* ══════════════════════════ PROPERTIES PANEL ══════════════════════════ */
+  #panel {
+    width: 340px; flex-shrink: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: none; flex-direction: column;
+    overflow-y: auto;
+  }
+  #panel.open { display: flex; }
+  #panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--surface); z-index: 2;
+  }
+  #panel-head h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+  #panel-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .field { display: flex; flex-direction: column; }
+  .readonly-value { font-size: 12px; color: var(--text-dim); padding: 6px 0; }
+
+  .prop-row {
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: var(--r1); padding: 10px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .prop-row-head { display: flex; align-items: center; gap: 8px; }
+  .prop-row-head .pill { flex-shrink: 0; }
+  .prop-row-head input { flex: 1; }
+  .prop-del { background: none; border: none; color: var(--text-dim); font-size: 13px; padding: 2px 6px; }
+  .prop-del:hover { color: var(--danger); }
+  .hint { font-size: 10px; color: var(--text-dim); }
+  #add-prop-row { display: flex; flex-direction: column; gap: 6px; }
+  .add-prop-row-line { display: flex; gap: 6px; align-items: flex-start; }
+  .add-prop-row-line select { width: 90px; flex-shrink: 0; }
+  .add-prop-row-line input, .add-prop-row-line textarea { flex: 1; min-width: 0; width: auto; }
+  .add-prop-row-line button { flex-shrink: 0; }
+
+  /* ══════════════════════════ MAIN LAYOUT ══════════════════════════ */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ══════════════════════════ TOAST ══════════════════════════ */
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--surface3); color: var(--text);
+    border: 1px solid var(--border2); border-radius: var(--r1);
+    padding: 10px 16px; font-size: 12px;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+    max-width: 80vw; z-index: 50;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { border-color: var(--danger); color: var(--danger); }
+  #toast.ok    { border-color: var(--accent); color: var(--accent); }
+
+  /* ══════════════════════════ TESTS MODAL ══════════════════════════ */
+  #tests-modal {
+    position: fixed; inset: 0; background: #0d1420cc;
+    display: none; align-items: center; justify-content: center; z-index: 40;
+  }
+  #tests-modal.open { display: flex; }
+  #tests-box {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: var(--r2); width: min(680px, 92vw); max-height: 84vh;
+    display: flex; flex-direction: column;
+  }
+  #tests-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  #tests-summary { font-weight: 700; }
+  #tests-summary.pass { color: var(--accent); }
+  #tests-summary.fail { color: var(--danger); }
+  #tests-list { overflow-y: auto; padding: 10px 16px; font-size: 12px; }
+  .t-suite { margin: 10px 0 4px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+  .t-row { padding: 3px 0; display: flex; gap: 8px; align-items: baseline; }
+  .t-pass::before { content: '✓'; color: var(--accent); font-weight: 700; }
+  .t-fail::before { content: '✗'; color: var(--danger); font-weight: 700; }
+  .t-msg { color: var(--danger); font-size: 11px; }
+
+  /* ══════════════════════════ DIALOG MODAL (prompt/confirm replacement) ══════════════════════════ */
+  #dialog-modal {
+    position: fixed; inset: 0; background: #0d1420cc;
+    display: none; align-items: center; justify-content: center; z-index: 41;
+  }
+  #dialog-modal.open { display: flex; }
+  #dialog-box {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: var(--r2); width: min(360px, 92vw);
+    padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  }
+  #dialog-message { font-size: 13px; }
+  #dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span id="app-title">Kanban<span class="accent">Builder</span></span>
+  <span id="app-version">v0.1.0</span>
+  <span id="stats"></span>
+  <button id="btn-add-col" class="primary">+ Column</button>
+  <button id="btn-import" title="Open a saved board from a JSON file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg> Open</button>
+  <button id="btn-export" title="Save the current board to a JSON file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg> Save</button>
+  <span id="toolbar-divider" aria-hidden="true"></span>
+  <label id="gh-repo-label" for="gh-repo">repo:</label>
+  <input type="text" id="gh-repo" placeholder="owner/repo" title="GitHub repo for 'Send to GitHub Issue' — e.g. octocat/hello-world" aria-label="GitHub repo, used by Send to GitHub Issue" style="width:140px;">
+  <button id="btn-tests">Tests</button>
+  <input type="file" id="file-import" accept=".json,application/json" hidden>
+</div>
+
+<div id="main">
+  <div id="board-wrap"><div id="board"></div></div>
+  <aside id="panel" aria-label="Task properties">
+    <div id="panel-head">
+      <h2>Properties</h2>
+      <button id="btn-panel-close" aria-label="Close panel">✕</button>
+    </div>
+    <div id="panel-body"></div>
+  </aside>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="col-live-region" class="sr-only" aria-live="polite"></div>
+<div id="task-live-region" class="sr-only" aria-live="polite"></div>
+
+<div id="tests-modal" role="dialog" aria-modal="true" aria-label="Test results">
+  <div id="tests-box">
+    <div id="tests-head">
+      <span id="tests-summary"></span>
+      <button id="btn-tests-close">Close</button>
+    </div>
+    <div id="tests-list"></div>
+  </div>
+</div>
+
+<div id="dialog-modal" role="dialog" aria-modal="true" aria-label="Confirm">
+  <div id="dialog-box">
+    <div id="dialog-message"></div>
+    <input type="text" id="dialog-input">
+    <div id="dialog-actions">
+      <button id="dialog-cancel">Cancel</button>
+      <button id="dialog-ok" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════════════
+   ── STORE ──
+   Owns all state contracts. Pure of DOM. UI subscribes via on('change').
+   Rejected actions return {ok:false, error} and emit 'error' — they never
+   mutate state and never emit 'change'. Visible errors over graceful
+   degradation.
+   ════════════════════════════════════════════════════════════════════ */
+const PROP_TYPES = ['text', 'text-large', 'date', 'link', 'image'];
+const PROP_TYPE_LABELS = { text: 'text', 'text-large': 'text (large)', date: 'date', link: 'link', image: 'image' };
+const APP_ID = 'kanbanbuilder';
+const SCHEMA_VERSION = 1;
+const IMAGE_MAX_PATH = 500;
+const DATE_MIN_ISO = '1900-01-01';
+const DATE_MAX_ISO = '2100-12-31';
+// Shared with the GitHub Issue link builder further down — 8191 is GitHub's
+// own documented URL length limit (github/docs#5136). Reused here as the
+// max length for a "text (large)" property: an existing, already-defended
+// number rather than a fresh one invented just for this.
+const GITHUB_URL_BYTE_LIMIT = 8191;
+
+function createStore(initialState) {
+  let state = initialState || { columns: [], tasks: [] };
+  const listeners = { change: [], error: [] };
+  let _seq = 0;
+
+  function uid(prefix) { return prefix + '_' + Date.now().toString(36) + '_' + (++_seq); }
+  function on(evt, fn) { listeners[evt].push(fn); }
+  function emit(evt, payload) { listeners[evt].forEach(fn => fn(payload)); }
+  function getState() { return state; }
+
+  function _col(id)  { return state.columns.find(c => c.id === id); }
+  function _task(id) { return state.tasks.find(t => t.id === id); }
+  function _reindexColumns() { state.columns.forEach((c, i) => c.order = i); }
+  function _reindexTasks(columnId) {
+    state.tasks.filter(t => t.columnId === columnId)
+      .sort((a, b) => a.order - b.order)
+      .forEach((t, i) => t.order = i);
+  }
+  function _validImagePath(value) {
+    if (typeof value !== 'string') return 'image value must be a string path';
+    if (/^data:/i.test(value.trim())) return 'image value must be a relative file path — data: URIs (base64) are not allowed in JSON';
+    if (value.length > IMAGE_MAX_PATH) return 'image path exceeds ' + IMAGE_MAX_PATH + ' chars — suspected encoded data, not a path';
+    return null;
+  }
+  function _validLongText(value) {
+    if (typeof value !== 'string') return 'text-large value must be a string';
+    if (value.length > GITHUB_URL_BYTE_LIMIT) return 'text-large value exceeds ' + GITHUB_URL_BYTE_LIMIT + ' characters';
+    return null;
+  }
+  function _validDateValue(value) {
+    if (typeof value !== 'string') return 'date value must be a string';
+    if (!value) return null; // blank is fine — not yet filled in
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return 'date value "' + value + '" is not a valid date';
+    if (d < new Date(DATE_MIN_ISO) || d > new Date(DATE_MAX_ISO)) {
+      return 'date must be between ' + DATE_MIN_ISO + ' and ' + DATE_MAX_ISO + ' — got "' + value + '"';
+    }
+    return null;
+  }
+
+  function _reject(error) { emit('error', error); return { ok: false, error }; }
+  function _accept(payload) { emit('change', state); return { ok: true, ...payload }; }
+
+  function dispatch(action) {
+    if (!action || typeof action.type !== 'string') return _reject('dispatch: action.type is required');
+    switch (action.type) {
+
+      /* ── columns ── */
+      case 'ADD_COLUMN': {
+        const name = (action.name || '').trim();
+        if (!name) return _reject('ADD_COLUMN: name is required');
+        const col = { id: uid('col'), name, order: state.columns.length };
+        state.columns.push(col);
+        return _accept({ id: col.id });
+      }
+      case 'RENAME_COLUMN': {
+        const col = _col(action.id);
+        if (!col) return _reject('RENAME_COLUMN: unknown column ' + action.id);
+        const name = (action.name || '').trim();
+        if (!name) return _reject('RENAME_COLUMN: name is required');
+        col.name = name;
+        return _accept({});
+      }
+      case 'DELETE_COLUMN': {
+        const col = _col(action.id);
+        if (!col) return _reject('DELETE_COLUMN: unknown column ' + action.id);
+        const inCol = state.tasks.filter(t => t.columnId === action.id).length;
+        if (inCol > 0) return _reject('DELETE_COLUMN: "' + col.name + '" still holds ' + inCol + ' task(s) — move or delete them first');
+        state.columns = state.columns.filter(c => c.id !== action.id);
+        _reindexColumns();
+        return _accept({});
+      }
+      case 'REORDER_COLUMN': {
+        const col = _col(action.id);
+        if (!col) return _reject('REORDER_COLUMN: unknown column ' + action.id);
+        if (typeof action.toIndex !== 'number') return _reject('REORDER_COLUMN: toIndex must be a number');
+        const ordered = [...state.columns].sort((a, b) => a.order - b.order);
+        ordered.splice(ordered.findIndex(c => c.id === col.id), 1);
+        const idx = Math.max(0, Math.min(action.toIndex, ordered.length));
+        ordered.splice(idx, 0, col);
+        ordered.forEach((c, i) => c.order = i);
+        return _accept({});
+      }
+
+      /* ── tasks ── */
+      case 'ADD_TASK': {
+        const col = _col(action.columnId);
+        if (!col) return _reject('ADD_TASK: unknown column ' + action.columnId);
+        const title = (action.title || '').trim();
+        if (!title) return _reject('ADD_TASK: title is required');
+        const task = {
+          id: uid('task'),
+          title,
+          createdDate: new Date().toISOString(),
+          columnId: col.id,
+          order: state.tasks.filter(t => t.columnId === col.id).length,
+          properties: []
+        };
+        state.tasks.push(task);
+        return _accept({ id: task.id });
+      }
+      case 'UPDATE_TASK': {
+        const task = _task(action.id);
+        if (!task) return _reject('UPDATE_TASK: unknown task ' + action.id);
+        if ('createdDate' in action) return _reject('UPDATE_TASK: createdDate is immutable');
+        if ('columnId' in action) return _reject('UPDATE_TASK: status changes must use MOVE_TASK');
+        if ('title' in action) {
+          const title = (action.title || '').trim();
+          if (!title) return _reject('UPDATE_TASK: title cannot be empty');
+          task.title = title;
+        }
+        return _accept({});
+      }
+      case 'MOVE_TASK': {
+        const task = _task(action.id);
+        if (!task) return _reject('MOVE_TASK: unknown task ' + action.id);
+        const col = _col(action.columnId);
+        if (!col) return _reject('MOVE_TASK: unknown column ' + action.columnId);
+        const fromCol = task.columnId;
+        task.columnId = col.id;
+        const siblings = state.tasks.filter(t => t.columnId === col.id && t.id !== task.id)
+          .sort((a, b) => a.order - b.order);
+        const idx = (typeof action.index === 'number')
+          ? Math.max(0, Math.min(action.index, siblings.length))
+          : siblings.length;
+        siblings.splice(idx, 0, task);
+        siblings.forEach((t, i) => t.order = i);
+        if (fromCol !== col.id) _reindexTasks(fromCol);
+        return _accept({});
+      }
+      case 'DELETE_TASK': {
+        const task = _task(action.id);
+        if (!task) return _reject('DELETE_TASK: unknown task ' + action.id);
+        const colId = task.columnId;
+        state.tasks = state.tasks.filter(t => t.id !== action.id);
+        _reindexTasks(colId);
+        return _accept({});
+      }
+
+      /* ── properties ── */
+      case 'ADD_PROPERTY': {
+        const task = _task(action.taskId);
+        if (!task) return _reject('ADD_PROPERTY: unknown task ' + action.taskId);
+        if (!PROP_TYPES.includes(action.propType)) {
+          return _reject('ADD_PROPERTY: type must be one of ' + PROP_TYPES.join(', ') + ' — got "' + action.propType + '"');
+        }
+        const name = (action.name || '').trim();
+        if (!name) return _reject('ADD_PROPERTY: name is required');
+        const value = action.value !== undefined ? action.value : '';
+        if (action.propType === 'image') {
+          const err = _validImagePath(value);
+          if (err) return _reject('ADD_PROPERTY: ' + err);
+        }
+        if (action.propType === 'text-large') {
+          const err = _validLongText(value);
+          if (err) return _reject('ADD_PROPERTY: ' + err);
+        }
+        if (action.propType === 'date') {
+          const err = _validDateValue(value);
+          if (err) return _reject('ADD_PROPERTY: ' + err);
+        }
+        const prop = { id: uid('prop'), name, type: action.propType, value };
+        task.properties.push(prop);
+        return _accept({ id: prop.id });
+      }
+      case 'UPDATE_PROPERTY': {
+        const task = _task(action.taskId);
+        if (!task) return _reject('UPDATE_PROPERTY: unknown task ' + action.taskId);
+        const prop = task.properties.find(p => p.id === action.propId);
+        if (!prop) return _reject('UPDATE_PROPERTY: unknown property ' + action.propId);
+        if ('propType' in action) return _reject('UPDATE_PROPERTY: type is immutable — delete and re-add the property');
+        if ('name' in action) {
+          const name = (action.name || '').trim();
+          if (!name) return _reject('UPDATE_PROPERTY: name cannot be empty');
+          prop.name = name;
+        }
+        if ('value' in action) {
+          if (prop.type === 'image') {
+            const err = _validImagePath(action.value);
+            if (err) return _reject('UPDATE_PROPERTY: ' + err);
+          }
+          if (prop.type === 'text-large') {
+            const err = _validLongText(action.value);
+            if (err) return _reject('UPDATE_PROPERTY: ' + err);
+          }
+          if (prop.type === 'date') {
+            const err = _validDateValue(action.value);
+            if (err) return _reject('UPDATE_PROPERTY: ' + err);
+          }
+          prop.value = action.value;
+        }
+        return _accept({});
+      }
+      case 'DELETE_PROPERTY': {
+        const task = _task(action.taskId);
+        if (!task) return _reject('DELETE_PROPERTY: unknown task ' + action.taskId);
+        const before = task.properties.length;
+        task.properties = task.properties.filter(p => p.id !== action.propId);
+        if (task.properties.length === before) return _reject('DELETE_PROPERTY: unknown property ' + action.propId);
+        return _accept({});
+      }
+
+      /* ── import ── */
+      case 'IMPORT_BOARD': {
+        const v = validateBoard(action.data);
+        if (!v.ok) return _reject('IMPORT_BOARD rejected:\n• ' + v.errors.join('\n• '));
+        state = buildStateFromBoard(action.data);
+        return _accept({});
+      }
+
+      default:
+        return _reject('dispatch: unknown action type "' + action.type + '"');
+    }
+  }
+
+  return { dispatch, getState, on };
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ── SERIALIZER ──
+   Canonical field order. Export → import → export must be byte-identical
+   (round-trip pin-down). Images travel as relative path strings only.
+   ════════════════════════════════════════════════════════════════════ */
+function exportBoard(state, exportedAt) {
+  return {
+    app: APP_ID,
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: exportedAt || new Date().toISOString(),
+    columns: [...state.columns].sort((a, b) => a.order - b.order)
+      .map(c => ({ id: c.id, name: c.name, order: c.order })),
+    tasks: [...state.tasks].sort((a, b) =>
+        a.columnId === b.columnId ? a.order - b.order : (a.columnId < b.columnId ? -1 : 1))
+      .map(t => ({
+        id: t.id,
+        title: t.title,
+        createdDate: t.createdDate,
+        columnId: t.columnId,
+        order: t.order,
+        properties: t.properties.map(p => ({ id: p.id, name: p.name, type: p.type, value: p.value }))
+      }))
+  };
+}
+
+function validateBoard(data) {
+  const errors = [];
+  if (!data || typeof data !== 'object') return { ok: false, errors: ['root must be a JSON object'] };
+  if (data.app !== APP_ID) errors.push('app must be "' + APP_ID + '" — got "' + data.app + '"');
+  if (data.schemaVersion !== SCHEMA_VERSION) errors.push('schemaVersion must be ' + SCHEMA_VERSION + ' — got ' + data.schemaVersion);
+  if (!Array.isArray(data.columns)) errors.push('columns must be an array');
+  if (!Array.isArray(data.tasks)) errors.push('tasks must be an array');
+  if (errors.length) return { ok: false, errors };
+
+  const colIds = new Set();
+  data.columns.forEach((c, i) => {
+    if (!c || typeof c.id !== 'string' || !c.id) errors.push('columns[' + i + '].id must be a non-empty string');
+    else if (colIds.has(c.id)) errors.push('columns[' + i + '].id "' + c.id + '" is duplicated');
+    else colIds.add(c.id);
+    if (typeof c.name !== 'string' || !c.name.trim()) errors.push('columns[' + i + '].name must be a non-empty string');
+    if (typeof c.order !== 'number') errors.push('columns[' + i + '].order must be a number');
+  });
+
+  const taskIds = new Set();
+  data.tasks.forEach((t, i) => {
+    const at = 'tasks[' + i + ']';
+    if (!t || typeof t.id !== 'string' || !t.id) errors.push(at + '.id must be a non-empty string');
+    else if (taskIds.has(t.id)) errors.push(at + '.id "' + t.id + '" is duplicated');
+    else taskIds.add(t.id);
+    if (typeof t.title !== 'string' || !t.title.trim()) errors.push(at + '.title must be a non-empty string');
+    if (typeof t.createdDate !== 'string' || isNaN(Date.parse(t.createdDate))) errors.push(at + '.createdDate must be an ISO date string');
+    if (!colIds.has(t.columnId)) errors.push(at + '.columnId "' + t.columnId + '" does not match any column (status must be a real column)');
+    if (typeof t.order !== 'number') errors.push(at + '.order must be a number');
+    if (!Array.isArray(t.properties)) { errors.push(at + '.properties must be an array'); return; }
+    t.properties.forEach((p, j) => {
+      const pat = at + '.properties[' + j + ']';
+      if (!p || typeof p.id !== 'string' || !p.id) errors.push(pat + '.id must be a non-empty string');
+      if (typeof p.name !== 'string' || !p.name.trim()) errors.push(pat + '.name must be a non-empty string');
+      if (!PROP_TYPES.includes(p.type)) errors.push(pat + '.type must be one of ' + PROP_TYPES.join(', '));
+      if (p.type === 'image') {
+        if (typeof p.value !== 'string') errors.push(pat + '.value must be a string path');
+        else if (/^data:/i.test(p.value.trim())) errors.push(pat + '.value is a data: URI — images must be relative file paths, never encoded into JSON');
+        else if (p.value.length > IMAGE_MAX_PATH) errors.push(pat + '.value exceeds ' + IMAGE_MAX_PATH + ' chars — suspected encoded data');
+      }
+      if (p.type === 'text-large') {
+        if (typeof p.value !== 'string') errors.push(pat + '.value must be a string');
+        else if (p.value.length > GITHUB_URL_BYTE_LIMIT) errors.push(pat + '.value exceeds ' + GITHUB_URL_BYTE_LIMIT + ' characters');
+      }
+      if (p.type === 'date' && p.value) {
+        const d = new Date(p.value);
+        if (isNaN(d.getTime())) errors.push(pat + '.value "' + p.value + '" is not a valid date');
+        else if (d < new Date(DATE_MIN_ISO) || d > new Date(DATE_MAX_ISO)) errors.push(pat + '.value is outside the accepted range ' + DATE_MIN_ISO + '–' + DATE_MAX_ISO);
+      }
+    });
+  });
+
+  return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
+}
+
+function buildStateFromBoard(data) {
+  return {
+    columns: data.columns.map(c => ({ id: c.id, name: c.name.trim(), order: c.order })),
+    tasks: data.tasks.map(t => ({
+      id: t.id, title: t.title.trim(), createdDate: t.createdDate,
+      columnId: t.columnId, order: t.order,
+      properties: t.properties.map(p => ({ id: p.id, name: p.name.trim(), type: p.type, value: p.value }))
+    }))
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ── POSITIONING HELPERS ──
+   Pure functions, no DOM. Used by drag/drop and keyboard reordering for
+   both columns and tasks. Kept DOM-free specifically so they stay on the
+   testable side of the store/UI boundary.
+   ════════════════════════════════════════════════════════════════════ */
+function reorderIndexExcludingSelf(currentIndex, newIndex) {
+  // currentIndex/newIndex are positions in the full ordered list (self included).
+  // Returns the index to pass to MOVE_TASK/REORDER_COLUMN, which operate on the
+  // list with the moved item already removed.
+  return newIndex - (newIndex > currentIndex ? 1 : 0);
+}
+
+function computeDropIndex(siblingIdsExcludingSelf, hoveredId, insertAfter) {
+  const pos = siblingIdsExcludingSelf.indexOf(hoveredId);
+  if (pos === -1) return siblingIdsExcludingSelf.length; // hovered item not in list (e.g. dropped in empty space) → append
+  return insertAfter ? pos + 1 : pos;
+}
+
+/* ── GitHub "Send to Issue" link builder ──
+   Pure, DOM-free. Opens a prefilled github.com/.../issues/new URL in a new
+   tab — no token, no fetch, no credentials touch this code at all. The
+   user's own existing GitHub session in the browser handles the rest. */
+const GITHUB_TRUNCATE_NOTE = '\n\n_(properties truncated to fit GitHub\'s URL length limit — see KanbanBuilder for the full task)_';
+
+function slugifyLabel(name) {
+  return (name || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'task';
+}
+
+function formatPropertyForIssue(p) {
+  if (p.type === 'link')  return '- **' + p.name + '** (link): ' + p.value;
+  if (p.type === 'image') return '- **' + p.name + '** (image reference, not embedded): `' + p.value + '`';
+  if (p.type === 'date')  return '- **' + p.name + '** (date): ' + p.value;
+  return '- **' + p.name + '**: ' + p.value;
+}
+
+/* Formats a property's value for compact display on a card — each type
+   gets a reading appropriate to it (a date reads as a date, a link reads
+   as a domain, an image reads as a filename) rather than the raw stored
+   string. Pure and DOM-free, so it stays on the testable side of the line. */
+function formatPropertyValueForDisplay(p) {
+  if (!p.value) return '(empty)';
+  if (p.type === 'date') {
+    const d = new Date(p.value);
+    return isNaN(d.getTime()) ? p.value : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  if (p.type === 'link') {
+    try { return new URL(p.value).hostname; } catch (e) { return p.value; }
+  }
+  if (p.type === 'image') {
+    return p.value.split('/').pop();
+  }
+  return p.value.length > 40 ? p.value.slice(0, 40) + '…' : p.value;
+}
+
+function buildGithubIssueBody(task, columnName) {
+  const created = task.createdDate ? new Date(task.createdDate).toLocaleString() : 'unknown';
+  const propLines = (task.properties || []).map(formatPropertyForIssue);
+  return [
+    '**Column:** ' + columnName,
+    '**Created:** ' + created,
+    '',
+    propLines.length ? '**Properties**' : '_No properties._',
+    ...propLines,
+    '',
+    '<!-- Created via KanbanBuilder -->'
+  ].join('\n');
+}
+
+function buildGithubIssueUrl(task, columnName, repo) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '')) {
+    return { ok: false, error: 'buildGithubIssueUrl: repo must look like "owner/repo" — got "' + repo + '"' };
+  }
+  const labels = ['kanban', slugifyLabel(columnName)].join(',');
+  const assemble = b => 'https://github.com/' + repo + '/issues/new?title=' + encodeURIComponent(task.title)
+    + '&body=' + encodeURIComponent(b) + '&labels=' + encodeURIComponent(labels);
+
+  let body = buildGithubIssueBody(task, columnName);
+  let url = assemble(body);
+  let truncated = false;
+  let guard = 0;
+  while (url.length > GITHUB_URL_BYTE_LIMIT && body.length > 40 && guard++ < 50) {
+    truncated = true;
+    body = body.slice(0, Math.max(0, body.length - 200)) + GITHUB_TRUNCATE_NOTE;
+    url = assemble(body);
+  }
+  return { ok: true, url, truncated };
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ── TESTS ──
+   Behavioral pin-down tests. Store side only — store owns state
+   contracts, UI owns rendering; tests belong on the store side of that
+   line. Each test runs against a fresh store.
+   ════════════════════════════════════════════════════════════════════ */
+function runTests() {
+  const results = [];
+  let suite = '';
+  function SUITE(name) { suite = name; }
+  function T(name, fn) {
+    try { fn(); results.push({ suite, name, pass: true }); }
+    catch (e) { results.push({ suite, name, pass: false, msg: e.message }); }
+  }
+  function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
+  function fresh() { return createStore(); }
+  function seeded() {
+    const s = fresh();
+    const c1 = s.dispatch({ type: 'ADD_COLUMN', name: 'To Do' }).id;
+    const c2 = s.dispatch({ type: 'ADD_COLUMN', name: 'Done' }).id;
+    const t1 = s.dispatch({ type: 'ADD_TASK', columnId: c1, title: 'Task A' }).id;
+    return { s, c1, c2, t1 };
+  }
+
+  SUITE('Suite 1 — Column contract');
+  T('ADD_COLUMN appends {id, name, order}', () => {
+    const s = fresh();
+    const r = s.dispatch({ type: 'ADD_COLUMN', name: 'To Do' });
+    assert(r.ok, 'should accept');
+    const col = s.getState().columns[0];
+    assert(col.id && col.name === 'To Do' && col.order === 0, 'shape wrong: ' + JSON.stringify(col));
+  });
+  T('ADD_COLUMN rejects empty/whitespace name', () => {
+    const s = fresh();
+    assert(!s.dispatch({ type: 'ADD_COLUMN', name: '   ' }).ok, 'should reject');
+    assert(s.getState().columns.length === 0, 'state must not mutate on reject');
+  });
+  T('RENAME_COLUMN changes name only', () => {
+    const { s, c1 } = seeded();
+    const before = s.getState().columns.find(c => c.id === c1);
+    const order = before.order;
+    assert(s.dispatch({ type: 'RENAME_COLUMN', id: c1, name: 'Backlog' }).ok);
+    const after = s.getState().columns.find(c => c.id === c1);
+    assert(after.name === 'Backlog' && after.order === order && after.id === c1, 'only name may change');
+  });
+  T('DELETE_COLUMN removes an empty column', () => {
+    const { s, c2 } = seeded();
+    assert(s.dispatch({ type: 'DELETE_COLUMN', id: c2 }).ok);
+    assert(!s.getState().columns.find(c => c.id === c2), 'column should be gone');
+  });
+  T('PIN: DELETE_COLUMN is rejected while tasks remain (no silent data loss)', () => {
+    const { s, c1 } = seeded();
+    const r = s.dispatch({ type: 'DELETE_COLUMN', id: c1 });
+    assert(!r.ok, 'must reject non-empty column');
+    assert(/still holds/.test(r.error), 'error must explain why: ' + r.error);
+    assert(s.getState().columns.find(c => c.id === c1), 'column must survive');
+  });
+  T('Column order reindexes contiguously after delete', () => {
+    const s = fresh();
+    s.dispatch({ type: 'ADD_COLUMN', name: 'A' });
+    const b = s.dispatch({ type: 'ADD_COLUMN', name: 'B' }).id;
+    s.dispatch({ type: 'ADD_COLUMN', name: 'C' });
+    s.dispatch({ type: 'DELETE_COLUMN', id: b });
+    const orders = s.getState().columns.map(c => c.order);
+    assert(JSON.stringify(orders) === '[0,1]', 'orders must be [0,1], got ' + JSON.stringify(orders));
+  });
+
+  T('REORDER_COLUMN moves a column to a target index and reindexes contiguously', () => {
+    const s = fresh();
+    const a = s.dispatch({ type: 'ADD_COLUMN', name: 'A' }).id;
+    s.dispatch({ type: 'ADD_COLUMN', name: 'B' });
+    s.dispatch({ type: 'ADD_COLUMN', name: 'C' });
+    assert(s.dispatch({ type: 'REORDER_COLUMN', id: a, toIndex: 2 }).ok);
+    const names = s.getState().columns.sort((x, y) => x.order - y.order).map(c => c.name);
+    assert(JSON.stringify(names) === JSON.stringify(['B', 'C', 'A']), 'got ' + JSON.stringify(names));
+    const orders = s.getState().columns.map(c => c.order).sort();
+    assert(JSON.stringify(orders) === '[0,1,2]', 'orders must stay contiguous: ' + JSON.stringify(orders));
+  });
+  T('PIN: REORDER_COLUMN clamps an out-of-range toIndex instead of rejecting or corrupting order', () => {
+    const s = fresh();
+    const a = s.dispatch({ type: 'ADD_COLUMN', name: 'A' }).id;
+    s.dispatch({ type: 'ADD_COLUMN', name: 'B' });
+    const r = s.dispatch({ type: 'REORDER_COLUMN', id: a, toIndex: 999 });
+    assert(r.ok, 'clamp, do not reject');
+    const names = s.getState().columns.sort((x, y) => x.order - y.order).map(c => c.name);
+    assert(JSON.stringify(names) === JSON.stringify(['B', 'A']), 'got ' + JSON.stringify(names));
+  });
+  T('REORDER_COLUMN rejects unknown column id', () => {
+    const s = fresh();
+    assert(!s.dispatch({ type: 'REORDER_COLUMN', id: 'ghost', toIndex: 0 }).ok);
+  });
+  T('REORDER_COLUMN to its own current position is a stable no-op', () => {
+    const s = fresh();
+    const a = s.dispatch({ type: 'ADD_COLUMN', name: 'A' }).id;
+    s.dispatch({ type: 'ADD_COLUMN', name: 'B' });
+    s.dispatch({ type: 'REORDER_COLUMN', id: a, toIndex: 0 });
+    const names = s.getState().columns.sort((x, y) => x.order - y.order).map(c => c.name);
+    assert(JSON.stringify(names) === JSON.stringify(['A', 'B']), 'got ' + JSON.stringify(names));
+  });
+
+  SUITE('Suite 2 — Task contract');
+  T('ADD_TASK stamps createdDate as valid ISO string', () => {
+    const { s, t1 } = seeded();
+    const task = s.getState().tasks.find(t => t.id === t1);
+    assert(typeof task.createdDate === 'string' && !isNaN(Date.parse(task.createdDate)), 'createdDate invalid: ' + task.createdDate);
+  });
+  T('ADD_TASK sets columnId (status) and rejects unknown column', () => {
+    const { s, c1, t1 } = seeded();
+    assert(s.getState().tasks.find(t => t.id === t1).columnId === c1);
+    assert(!s.dispatch({ type: 'ADD_TASK', columnId: 'nope', title: 'X' }).ok, 'must reject unknown column');
+  });
+  T('PIN: UPDATE_TASK rejects any attempt to change createdDate', () => {
+    const { s, t1 } = seeded();
+    const before = s.getState().tasks.find(t => t.id === t1).createdDate;
+    const r = s.dispatch({ type: 'UPDATE_TASK', id: t1, createdDate: '1999-01-01T00:00:00.000Z' });
+    assert(!r.ok && /immutable/.test(r.error), 'must reject with explicit error, got: ' + JSON.stringify(r));
+    assert(s.getState().tasks.find(t => t.id === t1).createdDate === before, 'createdDate must survive');
+  });
+  T('PIN: UPDATE_TASK rejects columnId — status changes go through MOVE_TASK', () => {
+    const { s, t1, c2 } = seeded();
+    const r = s.dispatch({ type: 'UPDATE_TASK', id: t1, columnId: c2 });
+    assert(!r.ok && /MOVE_TASK/.test(r.error), 'must name the correct action: ' + JSON.stringify(r));
+  });
+  T('MOVE_TASK changes columnId and appends to target column', () => {
+    const { s, t1, c2 } = seeded();
+    assert(s.dispatch({ type: 'MOVE_TASK', id: t1, columnId: c2 }).ok);
+    const task = s.getState().tasks.find(t => t.id === t1);
+    assert(task.columnId === c2 && task.order === 0, 'move failed: ' + JSON.stringify(task));
+  });
+  T('MOVE_TASK with index inserts at position and reindexes', () => {
+    const { s, c1 } = seeded();
+    const t2 = s.dispatch({ type: 'ADD_TASK', columnId: c1, title: 'Task B' }).id;
+    const t3 = s.dispatch({ type: 'ADD_TASK', columnId: c1, title: 'Task C' }).id;
+    s.dispatch({ type: 'MOVE_TASK', id: t3, columnId: c1, index: 0 });
+    const titles = s.getState().tasks.filter(t => t.columnId === c1)
+      .sort((a, b) => a.order - b.order).map(t => t.title);
+    assert(JSON.stringify(titles) === JSON.stringify(['Task C', 'Task A', 'Task B']), 'got ' + JSON.stringify(titles));
+    void t2;
+  });
+  T('DELETE_TASK removes and reindexes source column', () => {
+    const { s, c1, t1 } = seeded();
+    s.dispatch({ type: 'ADD_TASK', columnId: c1, title: 'Task B' });
+    s.dispatch({ type: 'DELETE_TASK', id: t1 });
+    const remaining = s.getState().tasks.filter(t => t.columnId === c1);
+    assert(remaining.length === 1 && remaining[0].order === 0, 'reindex failed: ' + JSON.stringify(remaining));
+  });
+  T('UPDATE_TASK rejects empty title', () => {
+    const { s, t1 } = seeded();
+    assert(!s.dispatch({ type: 'UPDATE_TASK', id: t1, title: '  ' }).ok);
+    assert(s.getState().tasks.find(t => t.id === t1).title === 'Task A', 'title must survive');
+  });
+
+  SUITE('Suite 3 — Property contract');
+  T('ADD_PROPERTY accepts each of the five types', () => {
+    const { s, t1 } = seeded();
+    const valueFor = { image: './img/a.png', date: '2026-08-01' };
+    PROP_TYPES.forEach(pt => {
+      const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: pt, name: 'p-' + pt, value: valueFor[pt] || 'v' });
+      assert(r.ok, pt + ' should be accepted: ' + JSON.stringify(r));
+    });
+    assert(s.getState().tasks[0].properties.length === PROP_TYPES.length);
+  });
+  T('PIN: ADD_PROPERTY rejects unknown type with the allowed list named', () => {
+    const { s, t1 } = seeded();
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'checkbox', name: 'x' });
+    assert(!r.ok && r.error.includes(PROP_TYPES.join(', ')), 'error must list allowed types: ' + r.error);
+  });
+  T('PIN: image property rejects data: URI on ADD (no base64 in JSON)', () => {
+    const { s, t1 } = seeded();
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'image', name: 'shot', value: 'data:image/png;base64,iVBORw0KGgo=' });
+    assert(!r.ok && /data:/.test(r.error), 'must reject and explain: ' + JSON.stringify(r));
+    assert(s.getState().tasks[0].properties.length === 0, 'property must not be created');
+  });
+  T('PIN: image property rejects data: URI on UPDATE too', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'image', name: 'shot', value: './img/a.png' }).id;
+    const r = s.dispatch({ type: 'UPDATE_PROPERTY', taskId: t1, propId: pid, value: 'DATA:image/png;base64,AAAA' });
+    assert(!r.ok && /data:/i.test(r.error), 'must reject case-insensitively for the data-URI reason: ' + JSON.stringify(r));
+    assert(s.getState().tasks[0].properties[0].value === './img/a.png', 'old path must survive');
+  });
+  T('PIN: image path longer than ' + IMAGE_MAX_PATH + ' chars is rejected (suspected encoding)', () => {
+    const { s, t1 } = seeded();
+    const long = './' + 'x'.repeat(IMAGE_MAX_PATH + 1) + '.png';
+    assert(!s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'image', name: 'big', value: long }).ok);
+  });
+  T('text-large accepts a value at or under the shared GitHub URL byte limit', () => {
+    const { s, t1 } = seeded();
+    const ok = 'x'.repeat(GITHUB_URL_BYTE_LIMIT);
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'text-large', name: 'notes', value: ok });
+    assert(r.ok, JSON.stringify(r));
+  });
+  T('PIN: text-large rejects a value over the shared GitHub URL byte limit on ADD', () => {
+    const { s, t1 } = seeded();
+    const tooLong = 'x'.repeat(GITHUB_URL_BYTE_LIMIT + 1);
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'text-large', name: 'notes', value: tooLong });
+    assert(!r.ok && r.error.includes(String(GITHUB_URL_BYTE_LIMIT)), JSON.stringify(r));
+    assert(s.getState().tasks[0].properties.length === 0, 'must not create a property that fails validation');
+  });
+  T('PIN: text-large rejects an over-limit value on UPDATE too, old value survives', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'text-large', name: 'notes', value: 'short' }).id;
+    const tooLong = 'x'.repeat(GITHUB_URL_BYTE_LIMIT + 1);
+    const r = s.dispatch({ type: 'UPDATE_PROPERTY', taskId: t1, propId: pid, value: tooLong });
+    assert(!r.ok, JSON.stringify(r));
+    assert(s.getState().tasks[0].properties[0].value === 'short', 'old value must survive a rejected update');
+  });
+  T('a plain "text" property is not subject to the text-large length gate', () => {
+    const { s, t1 } = seeded();
+    const long = 'x'.repeat(GITHUB_URL_BYTE_LIMIT + 500);
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'text', name: 'note', value: long });
+    assert(r.ok, 'small text type must remain uncapped: ' + JSON.stringify(r));
+  });
+  T('date accepts a value in the sane range and a blank value', () => {
+    const { s, t1 } = seeded();
+    assert(s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'date', name: 'due', value: '2026-08-01' }).ok);
+    assert(s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'date', name: 'due2', value: '' }).ok, 'blank date must be allowed — not yet filled in');
+  });
+  T('PIN: date rejects a nonsensical year like "0006", the exact bug a typed native date input can produce', () => {
+    const { s, t1 } = seeded();
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'date', name: 'due', value: '0006-06-06' });
+    assert(!r.ok && /between/.test(r.error), JSON.stringify(r));
+    assert(s.getState().tasks[0].properties.length === 0, 'must not create the property');
+  });
+  T('PIN: date rejects an unparseable string, and rejects on UPDATE with the old value surviving', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'date', name: 'due', value: '2026-08-01' }).id;
+    const r = s.dispatch({ type: 'UPDATE_PROPERTY', taskId: t1, propId: pid, value: 'not a date' });
+    assert(!r.ok, JSON.stringify(r));
+    assert(s.getState().tasks[0].properties[0].value === '2026-08-01', 'old value must survive a rejected update');
+  });
+  T('date rejects a value beyond the far end of the range too, not just implausibly early ones', () => {
+    const { s, t1 } = seeded();
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'date', name: 'due', value: '9999-01-01' });
+    assert(!r.ok);
+  });
+  T('UPDATE_PROPERTY changes name and value', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'text', name: 'note', value: 'a' }).id;
+    assert(s.dispatch({ type: 'UPDATE_PROPERTY', taskId: t1, propId: pid, name: 'memo', value: 'b' }).ok);
+    const p = s.getState().tasks[0].properties[0];
+    assert(p.name === 'memo' && p.value === 'b');
+  });
+  T('PIN: UPDATE_PROPERTY rejects type changes — delete and re-add instead', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'text', name: 'note', value: 'a' }).id;
+    const r = s.dispatch({ type: 'UPDATE_PROPERTY', taskId: t1, propId: pid, propType: 'link' });
+    assert(!r.ok && /immutable/.test(r.error), JSON.stringify(r));
+  });
+  T('DELETE_PROPERTY removes; unknown id is rejected', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'date', name: 'due', value: '2026-08-01' }).id;
+    assert(s.dispatch({ type: 'DELETE_PROPERTY', taskId: t1, propId: pid }).ok);
+    assert(s.getState().tasks[0].properties.length === 0);
+    assert(!s.dispatch({ type: 'DELETE_PROPERTY', taskId: t1, propId: pid }).ok, 'second delete must reject');
+  });
+
+  SUITE('Suite 4 — Serialization contract');
+  T('exportBoard emits canonical envelope {app, schemaVersion, exportedAt, columns, tasks}', () => {
+    const { s } = seeded();
+    const out = exportBoard(s.getState(), '2026-07-15T00:00:00.000Z');
+    assert(out.app === APP_ID && out.schemaVersion === SCHEMA_VERSION, 'envelope wrong');
+    assert(Array.isArray(out.columns) && Array.isArray(out.tasks), 'arrays required');
+    assert(JSON.stringify(Object.keys(out)) === JSON.stringify(['app','schemaVersion','exportedAt','columns','tasks']), 'field order is part of the contract');
+  });
+  T('PIN: round-trip — export → import → export is byte-identical', () => {
+    const { s, t1, c2 } = seeded();
+    s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'image', name: 'shot', value: './img/a.png' });
+    s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'link', name: 'ref', value: 'https://example.com' });
+    s.dispatch({ type: 'ADD_TASK', columnId: c2, title: 'Task Z' });
+    const stamp = '2026-07-15T00:00:00.000Z';
+    const a = exportBoard(s.getState(), stamp);
+    const s2 = createStore();
+    assert(s2.dispatch({ type: 'IMPORT_BOARD', data: JSON.parse(JSON.stringify(a)) }).ok, 'import must accept its own export');
+    const b = exportBoard(s2.getState(), stamp);
+    assert(JSON.stringify(a) === JSON.stringify(b), 'round-trip drifted');
+  });
+  T('import rejects a task whose columnId matches no column', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'ghost', order: 0, properties: [] }] };
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data });
+    assert(!r.ok && /ghost/.test(r.error), r.error);
+  });
+  T('import rejects wrong app id and wrong schemaVersion', () => {
+    const s = fresh();
+    assert(!s.dispatch({ type: 'IMPORT_BOARD', data: { app: 'other', schemaVersion: 1, columns: [], tasks: [] } }).ok);
+    assert(!s.dispatch({ type: 'IMPORT_BOARD', data: { app: APP_ID, schemaVersion: 99, columns: [], tasks: [] } }).ok);
+  });
+  T('PIN: import rejects image properties carrying data: URIs', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0,
+        properties: [{ id: 'p1', name: 'img', type: 'image', value: 'data:image/png;base64,AAAA' }] }] };
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data });
+    assert(!r.ok && /data:/.test(r.error), r.error);
+  });
+  T('import rejects non-array columns/tasks and reports every failure found', () => {
+    const s = fresh();
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data: { app: APP_ID, schemaVersion: 1, columns: 'nope', tasks: 'nope' } });
+    assert(!r.ok && /columns must be an array/.test(r.error) && /tasks must be an array/.test(r.error), 'must list both: ' + r.error);
+  });
+  T('import rejects duplicate ids', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }, { id: 'c1', name: 'B', order: 1 }], tasks: [] };
+    assert(!s.dispatch({ type: 'IMPORT_BOARD', data }).ok, 'duplicate column id must reject');
+  });
+  T('PIN: import rejects a text-large property value over the shared GitHub URL byte limit', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0,
+        properties: [{ id: 'p1', name: 'notes', type: 'text-large', value: 'x'.repeat(GITHUB_URL_BYTE_LIMIT + 1) }] }] };
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data });
+    assert(!r.ok && r.error.includes(String(GITHUB_URL_BYTE_LIMIT)), r.error);
+  });
+  T('PIN: import rejects a date property value outside the accepted range', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0,
+        properties: [{ id: 'p1', name: 'due', type: 'date', value: '0006-06-06' }] }] };
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data });
+    assert(!r.ok && /outside the accepted range/.test(r.error), r.error);
+  });
+
+  SUITE('Suite 5 — Store mechanics');
+  T('PIN: unknown action type is rejected loudly, never ignored', () => {
+    const s = fresh();
+    const r = s.dispatch({ type: 'FROB_WIDGET' });
+    assert(!r.ok && /unknown action type/.test(r.error), JSON.stringify(r));
+  });
+  T('change listeners fire on accepted actions only; error listeners on rejects', () => {
+    const s = fresh();
+    let changes = 0, errors = 0;
+    s.on('change', () => changes++);
+    s.on('error', () => errors++);
+    s.dispatch({ type: 'ADD_COLUMN', name: 'A' });   // accept
+    s.dispatch({ type: 'ADD_COLUMN', name: '' });    // reject
+    assert(changes === 1 && errors === 1, 'changes=' + changes + ' errors=' + errors);
+  });
+
+  SUITE('Suite 6 — Positioning helpers (pure, drag/drop + keyboard reorder)');
+  T('reorderIndexExcludingSelf: moving up (newIndex < currentIndex) needs no shift', () => {
+    assert(reorderIndexExcludingSelf(2, 1) === 1, 'got ' + reorderIndexExcludingSelf(2, 1));
+  });
+  T('PIN: reorderIndexExcludingSelf: moving down (newIndex > currentIndex) shifts back by one', () => {
+    // list [T0,T1,T2,T3] orders 0..3; moving T2 (order 2) down one slot means
+    // its target position among [T0,T1,T3] (T2 removed) is index 2, not 3.
+    assert(reorderIndexExcludingSelf(2, 3) === 2, 'got ' + reorderIndexExcludingSelf(2, 3));
+  });
+  T('reorderIndexExcludingSelf: no-op when newIndex === currentIndex', () => {
+    assert(reorderIndexExcludingSelf(2, 2) === 2);
+  });
+  T('computeDropIndex: dropping before a sibling returns that sibling\'s position', () => {
+    assert(computeDropIndex(['a', 'b', 'c'], 'b', false) === 1);
+  });
+  T('computeDropIndex: dropping after a sibling returns position + 1', () => {
+    assert(computeDropIndex(['a', 'b', 'c'], 'b', true) === 2);
+  });
+  T('PIN: computeDropIndex: hovered id absent from the list (e.g. empty-column drop) appends to the end', () => {
+    assert(computeDropIndex([], 'ghost', false) === 0);
+    assert(computeDropIndex(['a', 'b'], 'ghost', false) === 2);
+  });
+
+  SUITE('Suite 7 — GitHub Issue link builder (pure, zero credentials)');
+  T('slugifyLabel produces a safe, lowercase, hyphenated label', () => {
+    assert(slugifyLabel('In Progress') === 'in-progress', slugifyLabel('In Progress'));
+    assert(slugifyLabel('') === 'task');
+  });
+  T('buildGithubIssueUrl rejects a malformed repo path', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z', properties: [] };
+    const r = buildGithubIssueUrl(task, 'To Do', 'not-a-repo');
+    assert(!r.ok && /owner\/repo/.test(r.error), JSON.stringify(r));
+  });
+  T('PIN: issue body cites the task\'s actual stored createdDate, not the moment the button is clicked', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2020-05-04T00:00:00.000Z', properties: [] };
+    const r = buildGithubIssueUrl(task, 'To Do', 'me/repo');
+    const body = decodeURIComponent(new URL(r.url).searchParams.get('body'));
+    assert(body.includes('2020'), 'must cite the stored createdDate, not today: ' + body);
+  });
+  T('issue body lists each property with type-appropriate formatting', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z', properties: [
+      { id: 'p1', name: 'Due', type: 'date', value: '2026-08-01' },
+      { id: 'p2', name: 'Ref', type: 'link', value: 'https://example.com' },
+      { id: 'p3', name: 'Shot', type: 'image', value: './img/a.png' },
+      { id: 'p4', name: 'Note', type: 'text', value: 'hello' }
+    ]};
+    const r = buildGithubIssueUrl(task, 'To Do', 'me/repo');
+    const body = decodeURIComponent(new URL(r.url).searchParams.get('body'));
+    assert(body.includes('2026-08-01') && body.includes('https://example.com') && body.includes('./img/a.png') && body.includes('hello'), body);
+  });
+  T('PIN: image properties are referenced as a path, never rendered as a markdown image (local paths do not resolve on GitHub)', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z',
+      properties: [{ id: 'p1', name: 'Shot', type: 'image', value: './img/a.png' }] };
+    const r = buildGithubIssueUrl(task, 'To Do', 'me/repo');
+    const body = decodeURIComponent(new URL(r.url).searchParams.get('body'));
+    assert(!/!\[/.test(body), 'must not use markdown image syntax for a local path that GitHub cannot resolve: ' + body);
+  });
+  T('labels combine a static "kanban" tag with a slug of the column name', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z', properties: [] };
+    const r = buildGithubIssueUrl(task, 'In Progress', 'me/repo');
+    const labels = new URL(r.url).searchParams.get('labels');
+    assert(labels === 'kanban,in-progress', 'got ' + labels);
+  });
+  T('PIN: an oversized body is truncated so the assembled URL stays within GitHub\'s documented 8191-byte limit', () => {
+    const longProps = Array.from({ length: 50 }, (_, i) => ({ id: 'p' + i, name: 'Field' + i, type: 'text', value: 'x'.repeat(200) }));
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z', properties: longProps };
+    const r = buildGithubIssueUrl(task, 'To Do', 'me/repo');
+    assert(r.ok && r.truncated === true, 'must flag truncation: ' + JSON.stringify(r.ok));
+    assert(r.url.length <= GITHUB_URL_BYTE_LIMIT, 'URL must respect the documented limit, got ' + r.url.length);
+  });
+  T('a short task is not marked truncated and stays well under the limit', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z',
+      properties: [{ id: 'p1', name: 'Note', type: 'text', value: 'short' }] };
+    const r = buildGithubIssueUrl(task, 'To Do', 'me/repo');
+    assert(r.ok && r.truncated === false);
+  });
+
+  SUITE('Suite 8 — Property display formatting (pure)');
+  T('empty value formats as "(empty)" regardless of type', () => {
+    ['text', 'date', 'link', 'image'].forEach(type => {
+      assert(formatPropertyValueForDisplay({ type, value: '' }) === '(empty)', type);
+    });
+  });
+  T('date: a valid ISO date formats as a readable date', () => {
+    const out = formatPropertyValueForDisplay({ type: 'date', value: '2026-08-01' });
+    assert(/2026/.test(out) && out !== '2026-08-01', 'should be reformatted, got ' + out);
+  });
+  T('PIN: date: an unparseable value falls back to the raw string, never "Invalid Date"', () => {
+    const out = formatPropertyValueForDisplay({ type: 'date', value: 'not-a-date' });
+    assert(out === 'not-a-date', 'got ' + out);
+    assert(!/Invalid/.test(out), 'must never leak "Invalid Date" to the display');
+  });
+  T('link: a valid URL formats as its hostname only', () => {
+    assert(formatPropertyValueForDisplay({ type: 'link', value: 'https://example.com/a/b?c=1' }) === 'example.com');
+  });
+  T('PIN: link: a malformed non-URL string falls back to the raw value rather than throwing', () => {
+    assert(formatPropertyValueForDisplay({ type: 'link', value: 'not a url' }) === 'not a url');
+  });
+  T('image: a path with slashes shows only the filename', () => {
+    assert(formatPropertyValueForDisplay({ type: 'image', value: './images/photo.png' }) === 'photo.png');
+  });
+  T('image: a bare filename with no slashes passes through unchanged', () => {
+    assert(formatPropertyValueForDisplay({ type: 'image', value: 'photo.png' }) === 'photo.png');
+  });
+  T('text: short values pass through unchanged', () => {
+    assert(formatPropertyValueForDisplay({ type: 'text', value: 'short note' }) === 'short note');
+  });
+  T('PIN: text: long values are truncated with an ellipsis, not silently cut off without indication', () => {
+    const long = 'x'.repeat(80);
+    const out = formatPropertyValueForDisplay({ type: 'text', value: long });
+    assert(out.length <= 41 && out.endsWith('…'), 'got length ' + out.length);
+  });
+
+  return results;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ── UI STATE ──
+   Rendering decisions only. Never enters the store; never tested.
+   ════════════════════════════════════════════════════════════════════ */
+const uiState = {
+  selectedTaskId: null,
+  editingColumnId: null,
+  draggingTaskId: null,
+  draggingColumnId: null
+};
+const COLUMN_MIME = 'application/x-kanbanbuilder-column';
+
+/* ════════════════════════════════════════════════════════════════════
+   ── BOOT + PERSISTENCE ──
+   ════════════════════════════════════════════════════════════════════ */
+const _BOARD_KEY = 'kanbanbuilder_board_v1';
+const store = createStore(loadSaved());
+
+function loadSaved() {
+  try {
+    const raw = localStorage.getItem(_BOARD_KEY);
+    if (!raw) return defaultBoard();
+    const data = JSON.parse(raw);
+    const v = validateBoard(data);
+    if (!v.ok) { console.warn('Saved board invalid, starting fresh:', v.errors); return defaultBoard(); }
+    return buildStateFromBoard(data);
+  } catch (e) { return defaultBoard(); }
+}
+function defaultBoard() {
+  return {
+    columns: [
+      { id: 'col_seed_1', name: 'To Do', order: 0 },
+      { id: 'col_seed_2', name: 'In Progress', order: 1 },
+      { id: 'col_seed_3', name: 'Done', order: 2 }
+    ],
+    tasks: []
+  };
+}
+function save() {
+  try { localStorage.setItem(_BOARD_KEY, JSON.stringify(exportBoard(store.getState()))); }
+  catch (e) { showToast('Autosave failed: ' + e.message, 'error'); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ── RENDER ──
+   Pure DOM projection of store state + uiState.
+   ════════════════════════════════════════════════════════════════════ */
+const $board = document.getElementById('board');
+const $panelBody = document.getElementById('panel-body');
+const $panel = document.getElementById('panel');
+const $stats = document.getElementById('stats');
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function render() {
+  const state = store.getState();
+  renderBoard(state);
+  renderPanel(state);
+  $stats.textContent = state.columns.length + ' columns · ' + state.tasks.length + ' tasks';
+  if (_pendingFocusColId) {
+    const id = _pendingFocusColId;
+    _pendingFocusColId = null;
+    const $col = $board.querySelector('.column[data-col-id="' + CSS.escape(id) + '"] .col-grab');
+    if ($col) $col.focus();
+  }
+  if (_pendingFocusTaskId) {
+    const id = _pendingFocusTaskId;
+    _pendingFocusTaskId = null;
+    const $card = $board.querySelector('.card[data-task-id="' + CSS.escape(id) + '"]');
+    if ($card) $card.focus();
+  }
+  if (_pendingFocusPropertyName) {
+    _pendingFocusPropertyName = false;
+    const $propName = document.getElementById('panel-new-prop-name');
+    if ($propName) $propName.focus();
+  }
+}
+let _pendingFocusPropertyName = false;
+
+function renderBoard(state) {
+  $board.innerHTML = '';
+  const ordered = [...state.columns].sort((a, b) => a.order - b.order);
+  ordered.forEach((col, colIdx) => {
+    const $col = el('div', 'column');
+    $col.dataset.colId = col.id;
+
+    /* column-level reorder target: dragover/drop for COLUMN_MIME only, so it
+       doesn't collide with task drops into col-body below */
+    $col.addEventListener('dragover', e => {
+      if (!e.dataTransfer.types.includes(COLUMN_MIME)) return;
+      e.preventDefault();
+      const rect = $col.getBoundingClientRect();
+      const before = (e.clientX - rect.left) < rect.width / 2;
+      $col.classList.toggle('col-drop-before', before);
+      $col.classList.toggle('col-drop-after', !before);
+    });
+    $col.addEventListener('dragleave', () => {
+      $col.classList.remove('col-drop-before', 'col-drop-after');
+    });
+    $col.addEventListener('drop', e => {
+      if (!e.dataTransfer.types.includes(COLUMN_MIME)) return;
+      e.preventDefault();
+      const before = $col.classList.contains('col-drop-before');
+      $col.classList.remove('col-drop-before', 'col-drop-after');
+      const draggedId = e.dataTransfer.getData(COLUMN_MIME);
+      if (!draggedId || draggedId === col.id) return;
+      const targetIdx = before ? colIdx : colIdx + 1;
+      reorderColumn(draggedId, targetIdx);
+    });
+
+    /* header */
+    const $head = el('div', 'col-head');
+
+    const $grab = el('span', 'col-grab', '⠿');
+    $grab.draggable = true;
+    $grab.tabIndex = 0;
+    $grab.setAttribute('role', 'button');
+    $grab.setAttribute('aria-label', 'Reorder column "' + col.name + '". Drag, or use arrow keys, to move it.');
+    $grab.addEventListener('dragstart', e => {
+      uiState.draggingColumnId = col.id;
+      e.dataTransfer.setData(COLUMN_MIME, col.id);
+      e.dataTransfer.effectAllowed = 'move';
+      $col.classList.add('col-reorder-dragging');
+    });
+    $grab.addEventListener('dragend', () => {
+      uiState.draggingColumnId = null;
+      $col.classList.remove('col-reorder-dragging');
+      $board.querySelectorAll('.col-drop-before, .col-drop-after')
+        .forEach(n => n.classList.remove('col-drop-before', 'col-drop-after'));
+    });
+    $grab.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); moveColumnByKeyboard(col.id, colIdx - 1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); moveColumnByKeyboard(col.id, colIdx + 1); }
+    });
+    $head.appendChild($grab);
+
+    if (uiState.editingColumnId === col.id) {
+      const $inp = el('input', 'col-name-input');
+      $inp.value = col.name;
+      $inp.setAttribute('aria-label', 'Column name');
+      $inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') commitColumnRename(col.id, $inp.value);
+        if (e.key === 'Escape') { uiState.editingColumnId = null; render(); }
+      });
+      $inp.addEventListener('blur', () => commitColumnRename(col.id, $inp.value));
+      $head.appendChild($inp);
+      requestAnimationFrame(() => { $inp.focus(); $inp.select(); });
+    } else {
+      const $name = el('div', 'col-name', col.name);
+      $name.title = 'Click to rename';
+      $name.tabIndex = 0;
+      $name.setAttribute('role', 'button');
+      $name.addEventListener('click', () => { uiState.editingColumnId = col.id; render(); });
+      $name.addEventListener('keydown', e => { if (e.key === 'Enter') { uiState.editingColumnId = col.id; render(); } });
+      $head.appendChild($name);
+    }
+    const count = state.tasks.filter(t => t.columnId === col.id).length;
+    $head.appendChild(el('span', 'col-count', String(count)));
+    const $del = el('button', 'col-del', '✕');
+    $del.setAttribute('aria-label', 'Delete column ' + col.name);
+    $del.addEventListener('click', () => store.dispatch({ type: 'DELETE_COLUMN', id: col.id }));
+    $head.appendChild($del);
+    $col.appendChild($head);
+
+    /* body — drop target */
+    const $body = el('div', 'col-body');
+    $body.addEventListener('dragover', e => {
+      if (e.dataTransfer.types.includes(COLUMN_MIME)) return; // let it bubble to column-level reorder handler
+      e.preventDefault();
+      $col.classList.add('drop-active');
+    });
+    $body.addEventListener('dragleave', () => $col.classList.remove('drop-active'));
+    $body.addEventListener('drop', e => {
+      if (e.dataTransfer.types.includes(COLUMN_MIME)) return;
+      e.preventDefault();
+      $col.classList.remove('drop-active');
+      const taskId = e.dataTransfer.getData('text/plain');
+      if (taskId) store.dispatch({ type: 'MOVE_TASK', id: taskId, columnId: col.id });
+    });
+
+    const tasks = state.tasks.filter(t => t.columnId === col.id).sort((a, b) => a.order - b.order);
+    if (tasks.length === 0) {
+      $body.appendChild(el('div', 'col-empty', 'Drop a task here or add one below'));
+    }
+    tasks.forEach(task => $body.appendChild(renderCard(task, tasks)));
+    $col.appendChild($body);
+
+    /* footer */
+    const $foot = el('div', 'col-foot');
+    const $add = el('button', null, '+ Task');
+    $add.addEventListener('click', async () => {
+      const title = await showPromptDialog('Task title:');
+      if (title === null) return;
+      const r = store.dispatch({ type: 'ADD_TASK', columnId: col.id, title });
+      if (r.ok) { uiState.selectedTaskId = r.id; _pendingFocusPropertyName = true; render(); }
+    });
+    $foot.appendChild($add);
+    $col.appendChild($foot);
+
+    $board.appendChild($col);
+  });
+}
+
+let _pendingFocusColId = null;
+
+function reorderColumn(colId, toIndex) {
+  const r = store.dispatch({ type: 'REORDER_COLUMN', id: colId, toIndex });
+  if (r.ok) _pendingFocusColId = colId;
+}
+
+function moveColumnByKeyboard(colId, toIndex) {
+  const state = store.getState();
+  const total = state.columns.length;
+  if (toIndex < 0 || toIndex > total - 1) return; // already at an edge, nothing to announce
+  reorderColumn(colId, toIndex);
+  const col = state.columns.find(c => c.id === colId);
+  const $live = document.getElementById('col-live-region');
+  if ($live && col) $live.textContent = 'Column "' + col.name + '" moved to position ' + (toIndex + 1) + ' of ' + total;
+}
+
+function commitColumnRename(colId, value) {
+  if (uiState.editingColumnId !== colId) return;
+  uiState.editingColumnId = null;
+  const col = store.getState().columns.find(c => c.id === colId);
+  if (col && value.trim() && value.trim() !== col.name) {
+    store.dispatch({ type: 'RENAME_COLUMN', id: colId, name: value });
+  } else {
+    render();
+  }
+}
+
+function renderCard(task) {
+  const $card = el('div', 'card' + (uiState.selectedTaskId === task.id ? ' selected' : ''));
+  $card.draggable = true;
+  $card.tabIndex = 0;
+  $card.setAttribute('role', 'button');
+  $card.setAttribute('aria-label', 'Task: ' + task.title + '. Press up or down arrow to change its priority within this column.');
+  $card.dataset.taskId = task.id;
+  $card.dataset.order = String(task.order);
+
+  $card.appendChild(el('div', 'card-title', task.title));
+  $card.appendChild(el('div', 'card-created', 'Created ' + fmtDate(task.createdDate)));
+
+  if (task.properties.length) {
+    const $props = el('div', 'card-props');
+    task.properties.forEach(p => {
+      const displayValue = formatPropertyValueForDisplay(p);
+      let $pill;
+      if (p.type === 'link' && p.value) {
+        $pill = document.createElement('a');
+        $pill.href = p.value; $pill.target = '_blank'; $pill.rel = 'noopener';
+        $pill.addEventListener('click', e => e.stopPropagation()); // open the link, don't also select the card underneath
+      } else {
+        $pill = el('span');
+      }
+      $pill.className = 'pill pill-' + p.type;
+      $pill.textContent = p.name + ': ' + displayValue;
+      $pill.title = (PROP_TYPE_LABELS[p.type] || p.type) + ' — ' + p.name + ': ' + (p.value || '(empty)');
+      $props.appendChild($pill);
+    });
+    $card.appendChild($props);
+
+    const imgs = task.properties.filter(p => p.type === 'image' && p.value);
+    if (imgs.length) {
+      const $imgs = el('div', 'card-imgs');
+      imgs.forEach(p => {
+        const $img = document.createElement('img');
+        $img.src = p.value;
+        $img.alt = p.name;
+        $img.addEventListener('error', () => {
+          const $miss = el('div', 'img-missing', 'image not found: ' + p.value);
+          $img.replaceWith($miss);
+        });
+        $imgs.appendChild($img);
+      });
+      $card.appendChild($imgs);
+    }
+  }
+
+  $card.addEventListener('click', () => { uiState.selectedTaskId = task.id; render(); });
+  $card.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { uiState.selectedTaskId = task.id; render(); }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); moveTaskByKeyboard(task.id, -1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveTaskByKeyboard(task.id, 1); }
+  });
+  $card.addEventListener('dragstart', e => {
+    uiState.draggingTaskId = task.id;
+    e.dataTransfer.setData('text/plain', task.id);
+    e.dataTransfer.effectAllowed = 'move';
+    $card.classList.add('dragging');
+  });
+  $card.addEventListener('dragend', () => {
+    uiState.draggingTaskId = null;
+    $card.classList.remove('dragging');
+    $board.querySelectorAll('.card-drop-before, .card-drop-after')
+      .forEach(n => n.classList.remove('card-drop-before', 'card-drop-after'));
+  });
+  $card.addEventListener('dragover', e => {
+    if (e.dataTransfer.types.includes(COLUMN_MIME)) return; // a column drag, not a task one — ignore
+    if (uiState.draggingTaskId === task.id) return;          // hovering the card being dragged itself
+    e.preventDefault();
+    e.stopPropagation(); // this card, not the column body behind it, decides the drop position
+    const rect = $card.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    $card.classList.toggle('card-drop-before', before);
+    $card.classList.toggle('card-drop-after', !before);
+  });
+  $card.addEventListener('dragleave', () => {
+    $card.classList.remove('card-drop-before', 'card-drop-after');
+  });
+  $card.addEventListener('drop', e => {
+    if (e.dataTransfer.types.includes(COLUMN_MIME)) return;
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId || draggedId === task.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const before = $card.classList.contains('card-drop-before');
+    $card.classList.remove('card-drop-before', 'card-drop-after');
+    const targetColumnId = task.columnId;
+    const siblingIds = store.getState().tasks
+      .filter(t => t.columnId === targetColumnId && t.id !== draggedId)
+      .sort((a, b) => a.order - b.order)
+      .map(t => t.id);
+    const idx = computeDropIndex(siblingIds, task.id, !before);
+    store.dispatch({ type: 'MOVE_TASK', id: draggedId, columnId: targetColumnId, index: idx });
+  });
+  return $card;
+}
+
+let _pendingFocusTaskId = null;
+
+function moveTaskByKeyboard(taskId, delta) {
+  const state = store.getState();
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const ordered = state.tasks.filter(t => t.columnId === task.columnId).sort((a, b) => a.order - b.order);
+  const currentIndex = ordered.findIndex(t => t.id === taskId);
+  const newIndex = currentIndex + delta;
+  if (newIndex < 0 || newIndex > ordered.length - 1) return; // already at an edge
+  const idx = reorderIndexExcludingSelf(currentIndex, newIndex);
+  const r = store.dispatch({ type: 'MOVE_TASK', id: taskId, columnId: task.columnId, index: idx });
+  if (!r.ok) return;
+  _pendingFocusTaskId = taskId;
+  const $live = document.getElementById('task-live-region');
+  if ($live) $live.textContent = 'Task "' + task.title + '" moved to priority ' + (newIndex + 1) + ' of ' + ordered.length + ' in ' + '"' + (state.columns.find(c => c.id === task.columnId) || {}).name + '"';
+}
+
+/* ── Properties panel ── */
+function renderPanel(state) {
+  const task = state.tasks.find(t => t.id === uiState.selectedTaskId);
+  if (!task) { $panel.classList.remove('open'); uiState.selectedTaskId = null; return; }
+  $panel.classList.add('open');
+  $panelBody.innerHTML = '';
+
+  /* title */
+  const $fTitle = el('div', 'field');
+  $fTitle.appendChild(Object.assign(el('label'), { textContent: 'Title', htmlFor: 'panel-title' }));
+  const $title = el('input');
+  $title.id = 'panel-title';
+  $title.value = task.title;
+  $title.addEventListener('change', () => store.dispatch({ type: 'UPDATE_TASK', id: task.id, title: $title.value }));
+  $fTitle.appendChild($title);
+  $panelBody.appendChild($fTitle);
+
+  /* created date — read only, immutable in the store */
+  const $fCreated = el('div', 'field');
+  $fCreated.appendChild(el('label', null, 'Created date (immutable)'));
+  $fCreated.appendChild(el('div', 'readonly-value', new Date(task.createdDate).toLocaleString()));
+  $panelBody.appendChild($fCreated);
+
+  /* status — column select, dispatches MOVE_TASK */
+  const $fStatus = el('div', 'field');
+  $fStatus.appendChild(Object.assign(el('label'), { textContent: 'Status (column)', htmlFor: 'panel-status' }));
+  const $status = el('select');
+  $status.id = 'panel-status';
+  [...state.columns].sort((a, b) => a.order - b.order).forEach(c => {
+    const $o = el('option', null, c.name);
+    $o.value = c.id;
+    if (c.id === task.columnId) $o.selected = true;
+    $status.appendChild($o);
+  });
+  $status.addEventListener('change', () => store.dispatch({ type: 'MOVE_TASK', id: task.id, columnId: $status.value }));
+  $fStatus.appendChild($status);
+  $panelBody.appendChild($fStatus);
+
+  /* properties */
+  const $fProps = el('div', 'field');
+  $fProps.appendChild(el('label', null, 'Properties'));
+  task.properties.forEach(p => $fProps.appendChild(renderPropRow(task, p)));
+
+  /* add property */
+  const $addRow = el('div');
+  $addRow.id = 'add-prop-row';
+  const $addRowTop = el('div', 'add-prop-row-line');
+  const $addRowBottom = el('div', 'add-prop-row-line');
+  const $sel = el('select');
+  $sel.setAttribute('aria-label', 'New property type');
+  PROP_TYPES.forEach(pt => { const $o = el('option', null, PROP_TYPE_LABELS[pt] || pt); $o.value = pt; $sel.appendChild($o); });
+  const $nameInp = el('input');
+  $nameInp.id = 'panel-new-prop-name';
+  $nameInp.placeholder = 'property name';
+  $nameInp.setAttribute('aria-label', 'New property name');
+  const $btn = el('button', 'primary', '+ Add');
+
+  function submitNewProperty() {
+    const r = store.dispatch({ type: 'ADD_PROPERTY', taskId: task.id, propType: $sel.value, name: $nameInp.value, value: $valueInp.value });
+    if (r.ok) { _pendingFocusPropertyName = true; render(); } // clears both fields and loops focus back to name for the next one
+  }
+  function wireValueField($field) {
+    $field.addEventListener('keydown', e => {
+      if ($field.tagName === 'TEXTAREA') {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitNewProperty(); } // plain Enter stays a newline
+      } else if (e.key === 'Enter') {
+        submitNewProperty();
+      }
+    });
+  }
+  let $valueInp = createValueField($sel.value, 'New property value');
+  wireValueField($valueInp);
+  let $browseBtn = null;
+  function updateBrowseButton() {
+    if ($browseBtn) { $browseBtn.remove(); $browseBtn = null; }
+    if ($sel.value === 'image') {
+      $browseBtn = el('button', null, '📁');
+      $browseBtn.type = 'button';
+      $browseBtn.title = 'Browse for an image file';
+      $browseBtn.addEventListener('click', async () => {
+        const result = await pickImagePath();
+        if (!result) return;
+        $valueInp.value = result.path;
+        if (!result.verified) showToast('Path guessed from filename — confirm it matches where the image actually lives', 'ok');
+      });
+      $addRowBottom.insertBefore($browseBtn, $btn);
+    }
+  }
+  $sel.addEventListener('change', () => {
+    const $fresh = createValueField($sel.value, 'New property value');
+    wireValueField($fresh);
+    $valueInp.replaceWith($fresh);
+    $valueInp = $fresh;
+    updateBrowseButton();
+  });
+  $btn.addEventListener('click', submitNewProperty);
+  $addRowTop.append($sel, $nameInp);
+  $addRowBottom.append($valueInp, $btn);
+  updateBrowseButton();
+  $addRow.append($addRowTop, $addRowBottom);
+  $fProps.appendChild($addRow);
+  $panelBody.appendChild($fProps);
+
+  /* send to GitHub — zero-auth, opens a prefilled github.com/.../issues/new tab */
+  const $ghRow = el('div', 'field');
+  const $ghBtn = el('button', null, '↗ Send to GitHub Issue');
+  $ghBtn.style.width = '100%';
+  $ghBtn.addEventListener('click', () => {
+    const repo = document.getElementById('gh-repo').value.trim();
+    const columnName = (state.columns.find(c => c.id === task.columnId) || {}).name || 'Unknown';
+    const r = buildGithubIssueUrl(task, columnName, repo);
+    if (!r.ok) { showToast(r.error, 'error'); return; }
+    window.open(r.url, '_blank', 'noopener');
+    showToast(r.truncated ? 'Opened GitHub — properties were trimmed to fit the URL length limit' : 'Opened prefilled GitHub issue', 'ok');
+  });
+  $ghRow.appendChild($ghBtn);
+  $panelBody.appendChild($ghRow);
+
+  /* delete task */
+  const $delTask = el('button', 'danger', 'Delete task');
+  $delTask.addEventListener('click', async () => {
+    const ok = await showConfirmDialog('Delete "' + task.title + '"?', true);
+    if (ok) {
+      uiState.selectedTaskId = null;
+      store.dispatch({ type: 'DELETE_TASK', id: task.id });
+    }
+  });
+  $panelBody.appendChild($delTask);
+}
+
+/* ── Image file picker ──
+   showOpenFilePicker() alone only ever returns a bare filename — no
+   directory info, by design, for security. The only way to recover a real,
+   verified relative path is to grant access to a folder once via
+   showDirectoryPicker(), then resolve() each picked file against it.
+   Chromium-only, and requires a secure context — satisfied once this is
+   hosted over HTTPS (e.g. GitHub Pages), not from a bare file:// page.
+   Falls back to a plain <input type="file"> (filename-guess only,
+   clearly marked unverified) everywhere else. Not covered by the headless
+   test gate — needs a real browser file dialog to exercise. */
+let _imagesDirHandle = null; // granted once per session, in memory only
+
+async function pickImagePath() {
+  if ('showOpenFilePicker' in window) {
+    try {
+      if (!_imagesDirHandle) {
+        showToast('Pick the folder your images live in (once per session)…');
+        _imagesDirHandle = await window.showDirectoryPicker({ id: 'kanbanbuilder-images', mode: 'read' });
+      }
+      const [fileHandle] = await window.showOpenFilePicker({
+        types: [{ description: 'Images', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'] } }]
+      });
+      const pathParts = await _imagesDirHandle.resolve(fileHandle);
+      if (pathParts) return { path: './' + pathParts.join('/'), verified: true };
+      const file = await fileHandle.getFile();
+      showToast('That file is outside the granted folder — using its name as an unverified guess', 'error');
+      return { path: './images/' + file.name, verified: false };
+    } catch (err) {
+      if (err.name === 'AbortError') return null; // user cancelled a picker — not an error
+      showToast('File picker failed: ' + err.message, 'error');
+      return null;
+    }
+  }
+  // Fallback for Firefox/Safari: plain file input, filename only, no path available at all
+  return new Promise(resolve => {
+    const $input = document.createElement('input');
+    $input.type = 'file';
+    $input.accept = 'image/*';
+    $input.addEventListener('change', () => {
+      const file = $input.files[0];
+      resolve(file ? { path: './images/' + file.name, verified: false } : null);
+    }, { once: true });
+    $input.click();
+  });
+}
+
+/* Shared by the "add new property" row and each existing property's editor,
+   so the two never drift out of sync on which field a property type gets.
+   text-large gets a real <textarea> with a client-side maxLength as a soft
+   guard — the store's _validLongText is the actual gate; this just gives
+   the user feedback before they hit it. */
+function createValueField(type, ariaLabel) {
+  if (type === 'text-large') {
+    const $ta = document.createElement('textarea');
+    $ta.setAttribute('aria-label', ariaLabel);
+    $ta.rows = 4;
+    $ta.maxLength = GITHUB_URL_BYTE_LIMIT;
+    $ta.placeholder = 'longer text — up to ' + GITHUB_URL_BYTE_LIMIT + ' characters. Ctrl+Enter (⌘+Enter) to submit.';
+    return $ta;
+  }
+  const $inp = document.createElement('input');
+  $inp.setAttribute('aria-label', ariaLabel);
+  $inp.type = 'text';
+  if (type === 'date')  { $inp.type = 'date'; $inp.min = DATE_MIN_ISO; $inp.max = DATE_MAX_ISO; }
+  if (type === 'link')  { $inp.type = 'url'; $inp.placeholder = 'https://…'; }
+  if (type === 'image') $inp.placeholder = './images/photo.png';
+  return $inp;
+}
+
+function renderPropRow(task, p) {
+  const $row = el('div', 'prop-row');
+
+  const $head = el('div', 'prop-row-head');
+  $head.appendChild(el('span', 'pill pill-' + p.type, PROP_TYPE_LABELS[p.type] || p.type));
+  const $name = el('input');
+  $name.value = p.name;
+  $name.setAttribute('aria-label', 'Property name');
+  $name.addEventListener('change', () => store.dispatch({ type: 'UPDATE_PROPERTY', taskId: task.id, propId: p.id, name: $name.value }));
+  $head.appendChild($name);
+  const $del = el('button', 'prop-del', '✕');
+  $del.setAttribute('aria-label', 'Delete property ' + p.name);
+  $del.addEventListener('click', () => store.dispatch({ type: 'DELETE_PROPERTY', taskId: task.id, propId: p.id }));
+  $head.appendChild($del);
+  $row.appendChild($head);
+
+  const $val = createValueField(p.type, 'Property value');
+  $val.value = p.value;
+  $val.addEventListener('change', () => {
+    const r = store.dispatch({ type: 'UPDATE_PROPERTY', taskId: task.id, propId: p.id, value: $val.value });
+    if (!r.ok) $val.value = p.value; // restore last good value after visible error
+  });
+  $row.appendChild($val);
+
+  if (p.type === 'image') {
+    const $browseBtn = el('button', null, '📁 Browse…');
+    $browseBtn.type = 'button';
+    $browseBtn.addEventListener('click', async () => {
+      const result = await pickImagePath();
+      if (!result) return;
+      $val.value = result.path;
+      const r = store.dispatch({ type: 'UPDATE_PROPERTY', taskId: task.id, propId: p.id, value: result.path });
+      if (!r.ok) { $val.value = p.value; showToast(r.error, 'error'); }
+      else if (!result.verified) showToast('Path guessed from filename — confirm it matches where the image actually lives', 'ok');
+    });
+    $row.appendChild($browseBtn);
+    $row.appendChild(el('div', 'hint', 'Relative path to the image file, kept next to this HTML file. Never pasted/encoded data.'));
+  }
+  if (p.type === 'link' && p.value) {
+    const $a = document.createElement('a');
+    $a.href = p.value; $a.target = '_blank'; $a.rel = 'noopener';
+    $a.textContent = 'open ↗';
+    $a.style.cssText = 'font-size:10px;color:var(--violet);';
+    $row.appendChild($a);
+  }
+  return $row;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ── EVENTS / TOOLBAR ──
+   ════════════════════════════════════════════════════════════════════ */
+let toastTimer = null;
+function showToast(msg, kind) {
+  const $t = document.getElementById('toast');
+  $t.textContent = msg;
+  $t.className = 'show ' + (kind || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $t.classList.remove('show'), 4200);
+}
+
+/* In-page replacement for window.prompt()/confirm(). Sandboxed iframes
+   (including Claude's in-chat preview) commonly omit the allow-modals
+   permission, which makes native prompt()/confirm() silently return null
+   instead of showing anything — this works everywhere regardless. */
+function showDialog({ message, isPrompt, defaultValue, danger }) {
+  return new Promise(resolve => {
+    const $modal = document.getElementById('dialog-modal');
+    const $msg = document.getElementById('dialog-message');
+    const $input = document.getElementById('dialog-input');
+    const $ok = document.getElementById('dialog-ok');
+    const $cancel = document.getElementById('dialog-cancel');
+
+    $msg.textContent = message;
+    $input.hidden = !isPrompt;
+    $input.value = defaultValue || '';
+    $ok.textContent = isPrompt ? 'OK' : 'Confirm';
+    $ok.className = danger ? 'danger' : 'primary';
+    $modal.classList.add('open');
+    if (isPrompt) requestAnimationFrame(() => { $input.focus(); $input.select(); });
+    else $ok.focus();
+
+    function cleanup(result) {
+      $modal.classList.remove('open');
+      $ok.removeEventListener('click', onOk);
+      $cancel.removeEventListener('click', onCancel);
+      $input.removeEventListener('keydown', onKeydown);
+      document.removeEventListener('keydown', onEscape);
+      resolve(result);
+    }
+    function onOk() { cleanup(isPrompt ? $input.value : true); }
+    function onCancel() { cleanup(isPrompt ? null : false); }
+    function onKeydown(e) { if (e.key === 'Enter') onOk(); }
+    function onEscape(e) { if (e.key === 'Escape') onCancel(); }
+    $ok.addEventListener('click', onOk);
+    $cancel.addEventListener('click', onCancel);
+    $input.addEventListener('keydown', onKeydown);
+    document.addEventListener('keydown', onEscape);
+  });
+}
+function showPromptDialog(message, defaultValue) { return showDialog({ message, isPrompt: true, defaultValue }); }
+function showConfirmDialog(message, danger) { return showDialog({ message, isPrompt: false, danger }); }
+
+store.on('change', () => { render(); save(); });
+store.on('error', err => showToast(err, 'error'));
+
+document.getElementById('btn-add-col').addEventListener('click', async () => {
+  const name = await showPromptDialog('Column name:');
+  if (name === null) return;
+  store.dispatch({ type: 'ADD_COLUMN', name });
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const data = exportBoard(store.getState());
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kanban-board-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Exported ' + data.tasks.length + ' tasks in ' + data.columns.length + ' columns', 'ok');
+});
+
+document.getElementById('btn-import').addEventListener('click', () =>
+  document.getElementById('file-import').click());
+
+document.getElementById('file-import').addEventListener('change', e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try { data = JSON.parse(reader.result); }
+    catch (err) { showToast('Import failed: file is not valid JSON — ' + err.message, 'error'); return; }
+    uiState.selectedTaskId = null;
+    const r = store.dispatch({ type: 'IMPORT_BOARD', data });
+    if (r.ok) showToast('Imported board', 'ok');
+  };
+  reader.onerror = () => showToast('Import failed: could not read file', 'error');
+  reader.readAsText(file);
+});
+
+document.getElementById('btn-panel-close').addEventListener('click', () => {
+  uiState.selectedTaskId = null; render();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && uiState.selectedTaskId && !uiState.editingColumnId) {
+    uiState.selectedTaskId = null; render();
+  }
+});
+
+document.getElementById('btn-tests').addEventListener('click', () => {
+  const results = runTests();
+  const passed = results.filter(r => r.pass).length;
+  const $sum = document.getElementById('tests-summary');
+  $sum.textContent = passed + '/' + results.length + ' passed';
+  $sum.className = passed === results.length ? 'pass' : 'fail';
+  const $list = document.getElementById('tests-list');
+  $list.innerHTML = '';
+  let lastSuite = '';
+  results.forEach(r => {
+    if (r.suite !== lastSuite) { lastSuite = r.suite; $list.appendChild(el('div', 't-suite', r.suite)); }
+    const $row = el('div', 't-row ' + (r.pass ? 't-pass' : 't-fail'));
+    $row.appendChild(el('span', null, r.name));
+    if (!r.pass) $row.appendChild(el('span', 't-msg', r.msg));
+    $list.appendChild($row);
+  });
+  document.getElementById('tests-modal').classList.add('open');
+});
+document.getElementById('btn-tests-close').addEventListener('click', () =>
+  document.getElementById('tests-modal').classList.remove('open'));
+document.getElementById('tests-modal').addEventListener('click', e => {
+  if (e.target.id === 'tests-modal') e.target.classList.remove('open');
+});
+
+/* ── boot ── */
+const _GH_REPO_KEY = 'kanbanbuilder_gh_repo';
+const $ghRepoInput = document.getElementById('gh-repo');
+try {
+  const savedRepo = localStorage.getItem(_GH_REPO_KEY);
+  if (savedRepo) $ghRepoInput.value = savedRepo;
+} catch (e) { /* localStorage unavailable — repo field just starts empty */ }
+$ghRepoInput.addEventListener('input', () => {
+  try { localStorage.setItem(_GH_REPO_KEY, $ghRepoInput.value.trim()); } catch (e) { /* non-fatal */ }
+});
+
+render();
+</script>
+</body>
+</html>
