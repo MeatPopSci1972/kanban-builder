@@ -503,6 +503,7 @@ function createStore(initialState) {
         const task = {
           id: uid('task'),
           title,
+          color: '',
           createdDate: new Date().toISOString(),
           columnId: col.id,
           order: state.tasks.filter(t => t.columnId === col.id).length,
@@ -520,6 +521,11 @@ function createStore(initialState) {
           const title = (action.title || '').trim();
           if (!title) return _reject('UPDATE_TASK: title cannot be empty');
           task.title = title;
+        }
+        if ('color' in action) {
+          const cErr = validColor(action.color);
+          if (cErr) return _reject('UPDATE_TASK: ' + cErr);
+          task.color = action.color;
         }
         return _accept({});
       }
@@ -645,6 +651,7 @@ function exportBoard(state, exportedAt) {
       .map(t => ({
         id: t.id,
         title: t.title,
+        color: t.color || '',
         createdDate: t.createdDate,
         columnId: t.columnId,
         order: t.order,
@@ -678,6 +685,7 @@ function validateBoard(data) {
     else if (taskIds.has(t.id)) errors.push(at + '.id "' + t.id + '" is duplicated');
     else taskIds.add(t.id);
     if (typeof t.title !== 'string' || !t.title.trim()) errors.push(at + '.title must be a non-empty string');
+    if ('color' in t) { const cErr = validColor(t.color); if (cErr) errors.push(at + '.' + cErr); }
     if (typeof t.createdDate !== 'string' || isNaN(Date.parse(t.createdDate))) errors.push(at + '.createdDate must be an ISO date string');
     if (!colIds.has(t.columnId)) errors.push(at + '.columnId "' + t.columnId + '" does not match any column (status must be a real column)');
     if (typeof t.order !== 'number') errors.push(at + '.order must be a number');
@@ -711,7 +719,7 @@ function buildStateFromBoard(data) {
   return {
     columns: data.columns.map(c => ({ id: c.id, name: c.name.trim(), order: c.order })),
     tasks: data.tasks.map(t => ({
-      id: t.id, title: t.title.trim(), createdDate: t.createdDate,
+      id: t.id, title: t.title.trim(), color: t.color || '', createdDate: t.createdDate,
       columnId: t.columnId, order: t.order,
       properties: t.properties.map(p => ({ id: p.id, name: p.name.trim(), type: p.type, value: p.value }))
     }))
@@ -735,6 +743,40 @@ function computeDropIndex(siblingIdsExcludingSelf, hoveredId, insertAfter) {
   const pos = siblingIdsExcludingSelf.indexOf(hoveredId);
   if (pos === -1) return siblingIdsExcludingSelf.length; // hovered item not in list (e.g. dropped in empty space) → append
   return insertAfter ? pos + 1 : pos;
+}
+
+/* ── Color validation (shared: store UPDATE_TASK + UI board/task pickers) ──
+   Canonical stored form is a 6-digit lowercase hex string — exactly what a
+   native <input type="color"> emits, and a valid CSS color. Blank ('') means
+   "no color set" and is allowed, the way a blank date is. Broader CSS syntax
+   (#fff shorthand, uppercase, named colors, rgb()/hsl()) is deliberately
+   REJECTED for now: widen this gate on purpose, with tests, rather than
+   silently coercing #FFF → #ffffff. Module-level and DOM-free like the
+   positioning helpers, so the store, validateBoard, and the UI all call one
+   definition instead of three drifting copies. */
+const COLOR_HEX = /^#[0-9a-f]{6}$/;
+function validColor(value) {
+  if (typeof value !== 'string') return 'color must be a string';
+  if (value === '') return null; // no color set — allowed
+  if (!COLOR_HEX.test(value)) return 'color must be a 6-digit lowercase hex like #3b82f6 — got "' + value + '"';
+  return null;
+}
+
+/* ── Panel interaction decisions (pure, DOM-free) ──
+   The panel's placement and animation are UI and stay in the render/event
+   code (manual browser-verify). But the two *decisions* buried in those
+   handlers are pure logic, so they live here on the testable side of the
+   line — same reasoning as the positioning helpers above. */
+function nextTaskSelection(currentId, clickedId) {
+  // Clicking the already-selected task toggles it off; any other click selects.
+  return currentId === clickedId ? null : clickedId;
+}
+function shouldDismissPanel(isOpen, hits) {
+  // hits: { card, panel, addColumn, modal } — was the click inside each zone?
+  // Dismiss only an open panel, and only when the click missed every zone
+  // that should keep it open.
+  if (!isOpen) return false;
+  return !(hits.card || hits.panel || hits.addColumn || hits.modal);
 }
 
 /* ── GitHub "Send to Issue" link builder ──
@@ -1063,6 +1105,58 @@ function runTests() {
     assert(!s.dispatch({ type: 'DELETE_PROPERTY', taskId: t1, propId: pid }).ok, 'second delete must reject');
   });
 
+  SUITE('Suite 3b — Task color contract');
+  T('ADD_TASK defaults a task to no color', () => {
+    const { s, c1 } = seeded();
+    const id = s.dispatch({ type: 'ADD_TASK', columnId: c1, title: 'X' }).id;
+    assert(s.getState().tasks.find(t => t.id === id).color === '', 'new task color must default to blank');
+  });
+  T('UPDATE_TASK accepts a valid 6-digit lowercase hex color', () => {
+    const { s, t1 } = seeded();
+    assert(s.dispatch({ type: 'UPDATE_TASK', id: t1, color: '#3b82f6' }).ok);
+    assert(s.getState().tasks.find(t => t.id === t1).color === '#3b82f6');
+  });
+  T('UPDATE_TASK clears color when set to blank', () => {
+    const { s, t1 } = seeded();
+    s.dispatch({ type: 'UPDATE_TASK', id: t1, color: '#3b82f6' });
+    assert(s.dispatch({ type: 'UPDATE_TASK', id: t1, color: '' }).ok);
+    assert(s.getState().tasks.find(t => t.id === t1).color === '');
+  });
+  T('UPDATE_TASK rejects non-canonical colors (named, shorthand, uppercase, non-string)', () => {
+    const { s, t1 } = seeded();
+    assert(!s.dispatch({ type: 'UPDATE_TASK', id: t1, color: 'red' }).ok, 'named color must reject');
+    assert(!s.dispatch({ type: 'UPDATE_TASK', id: t1, color: '#fff' }).ok, '3-digit shorthand must reject');
+    assert(!s.dispatch({ type: 'UPDATE_TASK', id: t1, color: '#3B82F6' }).ok, 'uppercase must reject');
+    assert(!s.dispatch({ type: 'UPDATE_TASK', id: t1, color: 123 }).ok, 'non-string must reject');
+  });
+  T('export carries task color and round-trips with it intact', () => {
+    const { s, t1 } = seeded();
+    s.dispatch({ type: 'UPDATE_TASK', id: t1, color: '#10b981' });
+    const stamp = '2026-07-15T00:00:00.000Z';
+    const a = exportBoard(s.getState(), stamp);
+    assert(a.tasks.find(t => t.id === t1).color === '#10b981', 'export must carry color');
+    const s2 = createStore();
+    assert(s2.dispatch({ type: 'IMPORT_BOARD', data: JSON.parse(JSON.stringify(a)) }).ok);
+    const b = exportBoard(s2.getState(), stamp);
+    assert(JSON.stringify(a) === JSON.stringify(b), 'round-trip drifted with color present');
+  });
+  T('import tolerates a task with no color field (backward compatible)', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0, properties: [] }] };
+    assert(s.dispatch({ type: 'IMPORT_BOARD', data }).ok, 'missing color must be allowed');
+    assert(s.getState().tasks[0].color === '', 'absent color must default to blank');
+  });
+  T('import rejects a task carrying an invalid color', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', color: 'blue', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0, properties: [] }] };
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data });
+    assert(!r.ok && /color/.test(r.error), r.error);
+  });
+
   SUITE('Suite 4 — Serialization contract');
   T('exportBoard emits canonical envelope {app, schemaVersion, exportedAt, columns, tasks}', () => {
     const { s } = seeded();
@@ -1262,6 +1356,29 @@ function runTests() {
     const long = 'x'.repeat(80);
     const out = formatPropertyValueForDisplay({ type: 'text', value: long });
     assert(out.length <= 41 && out.endsWith('…'), 'got length ' + out.length);
+  });
+
+  SUITE('Suite 9 — Panel interaction (pure decision logic)');
+  T('nextTaskSelection: clicking the already-selected task toggles it off', () => {
+    assert(nextTaskSelection('t1', 't1') === null);
+  });
+  T('nextTaskSelection: clicking a different task selects it', () => {
+    assert(nextTaskSelection('t1', 't2') === 't2');
+  });
+  T('nextTaskSelection: clicking with nothing selected selects the clicked task', () => {
+    assert(nextTaskSelection(null, 't2') === 't2');
+  });
+  T('shouldDismissPanel: a closed panel is never dismissed', () => {
+    assert(shouldDismissPanel(false, { card: false, panel: false, addColumn: false, modal: false }) === false);
+  });
+  T('shouldDismissPanel: an open panel + click in empty space dismisses', () => {
+    assert(shouldDismissPanel(true, { card: false, panel: false, addColumn: false, modal: false }) === true);
+  });
+  T('shouldDismissPanel: a click inside ANY protected zone keeps an open panel open', () => {
+    assert(shouldDismissPanel(true, { card: true,  panel: false, addColumn: false, modal: false }) === false, 'card');
+    assert(shouldDismissPanel(true, { card: false, panel: true,  addColumn: false, modal: false }) === false, 'panel');
+    assert(shouldDismissPanel(true, { card: false, panel: false, addColumn: true,  modal: false }) === false, 'addColumn');
+    assert(shouldDismissPanel(true, { card: false, panel: false, addColumn: false, modal: true  }) === false, 'modal');
   });
 
   return results;
@@ -1556,21 +1673,12 @@ function renderCard(task) {
   }
 
   $card.addEventListener('click', () => {
-
-    if(uiState.selectedTaskId === task.id) {
-      const mainLayout = document.getElementById("main");
-      
-      if (mainLayout && $panel.parentElement != mainLayout) {
-        mainLayout.appendChild($panel);
-      }
-
-      $panel.classList.remove('open'); 
-      uiState.selectedTaskId = null; 
-      return;
-    }
-
-    uiState.selectedTaskId = task.id; 
-    render(); 
+    // Decision is pure (nextTaskSelection); placement is renderPanel's job for
+    // BOTH open and close, so there's nothing to duplicate here — just set the
+    // selection and re-render. (This also clears the card's .selected styling
+    // on deselect, which the old early-return path left stale.)
+    uiState.selectedTaskId = nextTaskSelection(uiState.selectedTaskId, task.id);
+    render();
   });
 
   $card.addEventListener('keydown', e => {
@@ -2033,18 +2141,17 @@ document.getElementById('tests-modal').addEventListener('click', e => {
 
 // Dismiss properties panel when clicking outside active workspace zones
 document.addEventListener('click', (event) => {
-  // If the panel isn't open, there is nothing to dismiss
-  if (!$panel || !$panel.classList.contains('open')) return;
-
-  // Check where the click originated
-  const clickedCard = event.target.closest('.card');
-  const clickedPanel = event.target.closest('#panel');
-  const clickedAddColumn = event.target.closest('#btn-add-col');
-  const clickedModal = event.target.closest('#dialog-modal, #tests-modal');
-
-  // If the click is outside the card, panel, add buttons, and active modals, close it
-  if (!clickedCard && !clickedPanel && !clickedAddColumn && !clickedModal) {
-    uiState.selectedTaskId = null; 
+  // The DOM half: just gather where the click landed.
+  const hits = {
+    card:      !!event.target.closest('.card'),
+    panel:     !!event.target.closest('#panel'),
+    addColumn: !!event.target.closest('#btn-add-col'),
+    modal:     !!event.target.closest('#dialog-modal, #tests-modal')
+  };
+  // The decision half: pure, pinned by Suite 9.
+  const isOpen = !!($panel && $panel.classList.contains('open'));
+  if (shouldDismissPanel(isOpen, hits)) {
+    uiState.selectedTaskId = null;
     render();
   }
 });
