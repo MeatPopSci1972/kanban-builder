@@ -820,6 +820,23 @@ function validColor(value) {
   return null;
 }
 
+/* ── Default-title uniqueness (pure, DOM-free) ──
+   Applies ONLY to the system-generated "+ Task" placeholder, never to a
+   user-typed title. The store keeps its simple contract (title required,
+   non-empty) and never silently renames — that would violate visible-errors.
+   So de-duping lives here, where the default is *authored*, not in any mutation
+   path. Exact-match, trimmed, case-sensitive: the base is always the constant
+   'New task', so case/locale folding would be dead complexity — widen only with
+   a test. Returns base if free, else "base 2", "base 3", … (first free int ≥ 2). */
+function uniqueDefaultTitle(base, existingTitles) {
+  const root = (base || '').trim();
+  const taken = new Set((existingTitles || []).map(t => (t || '').trim()));
+  if (!taken.has(root)) return root;
+  let n = 2;
+  while (taken.has(root + ' ' + n)) n++;
+  return root + ' ' + n;
+}
+
 /* ── Deployment identity (pure, DOM-free) ──
    Each *copy* of this file carries its own ULID (see _BOARD_ULID at boot). The
    localStorage key is derived from it, so two different deployments on one
@@ -1536,6 +1553,28 @@ function runTests() {
     assert(boardStorageKey('01ARZ3NDEKTSV4RRFFQ69G5FAV') !== boardStorageKey('01BX5ZZKBKACTAV9WEVGEMMVRZ'));
   });
 
+  SUITE('Suite 11 — Default-title uniqueness (pure)');
+  T('uniqueDefaultTitle: returns the base untouched when nothing collides', () => {
+    assert(uniqueDefaultTitle('New task', []) === 'New task', 'empty list');
+    assert(uniqueDefaultTitle('New task', ['Other', 'Thing']) === 'New task', 'no collision');
+  });
+  T('uniqueDefaultTitle: first collision suffixes with 2, not 1', () => {
+    assert(uniqueDefaultTitle('New task', ['New task']) === 'New task 2');
+  });
+  T('uniqueDefaultTitle: walks up to the first free integer, skipping gaps', () => {
+    assert(uniqueDefaultTitle('New task', ['New task', 'New task 2']) === 'New task 3', 'sequential');
+    assert(uniqueDefaultTitle('New task', ['New task', 'New task 3']) === 'New task 2', 'fills the gap at 2');
+  });
+  T('uniqueDefaultTitle: compares trimmed, so whitespace-padded saves still collide', () => {
+    assert(uniqueDefaultTitle('New task', ['  New task  ']) === 'New task 2');
+  });
+  T('uniqueDefaultTitle: case-sensitive by design — a differently-cased title is not a collision', () => {
+    assert(uniqueDefaultTitle('New task', ['new task']) === 'New task');
+  });
+  T('uniqueDefaultTitle: tolerates null/undefined entries in the title list', () => {
+    assert(uniqueDefaultTitle('New task', [null, undefined, 'New task']) === 'New task 2');
+  });
+
   return results;
 }
 
@@ -1655,8 +1694,14 @@ function render() {
     const $propName = document.getElementById('panel-new-prop-name');
     if ($propName) $propName.focus();
   }
+  if (_pendingFocusTaskTitle) {
+    _pendingFocusTaskTitle = false;
+    const $title = document.getElementById('panel-title');
+    if ($title) { $title.focus(); $title.select(); }
+  }
 }
 let _pendingFocusPropertyName = false;
+let _pendingFocusTaskTitle = false;
 
 function renderBoard(state) {
   $board.innerHTML = '';
@@ -1775,11 +1820,14 @@ function renderBoard(state) {
     /* footer */
     const $foot = el('div', 'col-foot');
     const $add = el('button', null, '+ Task');
-    $add.addEventListener('click', async () => {
-      const title = await showPromptDialog('Task title:');
-      if (title === null) return;
+    $add.addEventListener('click', () => {
+      // No title prompt: create with a de-duped default title, open the panel,
+      // and land focus (text pre-selected) in the Title field so the name is
+      // typed inline. uniqueDefaultTitle keeps repeated + Task clicks from
+      // piling up identical "New task" cards; user-typed titles stay untouched.
+      const title = uniqueDefaultTitle('New task', store.getState().tasks.map(t => t.title));
       const r = store.dispatch({ type: 'ADD_TASK', columnId: col.id, title });
-      if (r.ok) { uiState.selectedTaskId = r.id; _pendingFocusPropertyName = true; render(); }
+      if (r.ok) { uiState.selectedTaskId = r.id; _pendingFocusTaskTitle = true; render(); }
     });
     $foot.appendChild($add);
     $col.appendChild($foot);

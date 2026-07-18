@@ -4,7 +4,7 @@ A single-file, zero-dependency kanban board that runs straight from an HTML
 file — no build step, no framework, no server. Open it locally or host it on
 GitHub Pages.
 
-**Status:** alpha · **Tests:** 94/94 across 11 suites (headless) · **Deps:** none
+**Status:** alpha · **Tests:** 100/100 across 12 suites (headless) · **Deps:** none
 
 ---
 
@@ -16,7 +16,12 @@ GitHub Pages.
   never a dead end. Reorder by drag *or* by keyboard (arrow keys on a focused
   column), so the board is usable without a mouse.
 * **Tasks** — add to any column, edit, move between columns, delete, and
-  reorder within a column (drag or keyboard).
+  reorder within a column (drag or keyboard). Adding a task is prompt-free: it
+  drops a card in immediately and puts your cursor straight in the panel's Title
+  field (text pre-selected) to name it inline. The auto-assigned default is
+  de-duped — repeated adds read `New task`, `New task 2`, `New task 3`… rather
+  than a pile of identical cards. A title you type yourself is never touched, so
+  duplicate names are still allowed where you want them.
 * **Typed task properties** — attach `text`, `text (large)`, `date`, `link`,
   or `image` properties to a task. Each type is validated on the way in and
   formatted for readable display (a link shows its hostname, an image shows
@@ -74,9 +79,10 @@ GitHub Pages.
 
 * **Pure, DOM-free helpers kept on the testable side of the line.** The
   drag/drop and keyboard-reorder math (`reorderIndexExcludingSelf`,
-  `computeDropIndex`), color validation (`validColor`), the panel's interaction
-  decisions (`nextTaskSelection`, `shouldDismissPanel`, `computePanelScroll`),
-  and the
+  `computeDropIndex`), color validation (`validColor`), the de-duped default
+  task title (`uniqueDefaultTitle` — applied only to the system-generated
+  placeholder, never to a typed title), the panel's interaction decisions
+  (`nextTaskSelection`, `shouldDismissPanel`, `computePanelScroll`), and the
   GitHub-link and display formatters are all pure functions. The render/event
   code stays thin; the logic stays pinned. The panel's *animation and DOM
   placement* deliberately stay in the UI (manual-verify), but the *decisions*
@@ -129,15 +135,16 @@ GitHub Pages.
 
 ## Tests
 
-The board ships with **94 behavioral pin-down tests across 11 suites**, and
+The board ships with **100 behavioral pin-down tests across 12 suites**, and
 they run **headless — no browser required.**
 
 * **What they cover:** the full store contract (every action's accept/reject
   behavior, including column insertion to the right of a given column via
   `ADD_COLUMN`'s `afterId`), the serializer (including the export→import→export
-  round-trip), and every pure helper (positioning math, color validation, panel
-  decisions, GitHub-link building, display formatting, and the deployment
-  storage-key helpers `isUlid` / `boardStorageKey`).
+  round-trip), and every pure helper (positioning math, color validation, the
+  de-duped default-title picker `uniqueDefaultTitle`, panel decisions,
+  GitHub-link building, display formatting, and the deployment storage-key
+  helpers `isUlid` / `boardStorageKey`).
 
 * **What they deliberately don't cover:** anything that touches a real browser —
   the panel's CSS slide, the actual DOM insertion, the file picker, and the

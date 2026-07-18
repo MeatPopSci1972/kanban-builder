@@ -31,9 +31,9 @@ testable without a DOM — keep tests on the store side of this line.
   `{app, schemaVersion, exportedAt, columns, tasks}`. Every import passes
   `validateBoard`.
 * **Pure helpers** (DOM-free): `reorderIndexExcludingSelf`, `computeDropIndex`,
-  `validColor`, `nextTaskSelection`, `shouldDismissPanel`, `isUlid`,
-  `boardStorageKey`, GitHub issue-link/display formatters. Pure on purpose —
-  keeps render/event code thin.
+  `validColor`, `uniqueDefaultTitle`, `nextTaskSelection`, `shouldDismissPanel`,
+  `isUlid`, `boardStorageKey`, GitHub issue-link/display formatters. Pure on
+  purpose — keeps render/event code thin.
 
 ## Current state
 
@@ -72,6 +72,20 @@ testable without a DOM — keep tests on the store side of this line.
   append). Panel-dismiss hit-test now protects `.col-add` (was `#btn-add-col`);
   the pure `shouldDismissPanel` + Suite 9 are unchanged (the `addColumn` hit key
   is semantic).
+* **New Task — no modal, inline title, de-duped default — SHIPPED.** The `+ Task`
+  footer button no longer prompts (`showPromptDialog` is now used only by
+  add-column). It creates the task immediately with a default title, selects it,
+  opens the panel, and lands focus in the **Title** field with its text selected
+  (`_pendingFocusTaskTitle`) so the name is typed inline. The default is run
+  through `uniqueDefaultTitle('New task', existingTitles)` so repeated clicks
+  yield `New task`, `New task 2`, `New task 3`… instead of a stack of identical
+  cards. Uniqueness lives at the *authoring* site (UI), NOT in the store: the
+  store keeps its plain contract (title required, non-empty) and never silently
+  renames — that would violate visible-errors. A **user-typed** title is left
+  untouched and may collide freely (a hard store uniqueness rule was considered
+  and declined — duplicate task names are legitimate on a kanban). `uniqueDefaultTitle`
+  is pure + gated (Suite 11, exact-match/trimmed/case-sensitive); the button,
+  focus, and `getState().tasks.map(...)` call are UI DOM, manual-verify.
 * **Panel dismiss — guarded against mid-bubble detach.** The document
   click-to-dismiss handler early-returns when `event.target.isConnected` is
   false. A panel control whose dispatch re-renders (`$panelBody.innerHTML=''`)
@@ -235,8 +249,10 @@ removed toolbar `+ Column`; per-deployment ULID storage key (`isUlid` /
 `boardStorageKey`, Suite 10; baked `_BOARD_ULID` + non-destructive legacy
 migration in `loadSaved()`); **Clear Store** button; task color (store + UI,
 wire-mesh visual); `loadSaved()` visible-toast; panel dismiss `isConnected`
-guard; panel stays on-screen (`computePanelScroll`). All gated where gate-able;
-DOM behavior manual-verify. Gate is now 94/94 across 11 suites.
+guard; panel stays on-screen (`computePanelScroll`); **New Task** now creates
+directly with an inline-focused Title field and a de-duped default title
+(`uniqueDefaultTitle`, Suite 11 — no more `+ Task` prompt modal). All gated where
+gate-able; DOM behavior manual-verify. Gate is now 100/100 across 12 suites.
 
 **Next task — OPEN.** No committed next feature. Multi-board (the prior "next
 frontier") is **FROZEN** pending a future concept that must be imagined first
