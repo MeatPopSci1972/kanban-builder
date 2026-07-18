@@ -1765,6 +1765,21 @@ function renderPanel(state) {
   }
   
   const columnElement = document.querySelector(`[data-col-id="${task.columnId}"]`);
+
+  // Tripwire: the store guarantees task.columnId references a real column and
+  // renderBoard renders every column, so this element should always exist. If
+  // it doesn't, an invariant broke upstream. Surface it loudly (visible errors
+  // over graceful degradation) and bail to a safe closed state, rather than
+  // throwing on .nextSibling and leaving the panel half-rendered. selectedTaskId
+  // is left intact on purpose: the selection is valid, the DOM is inconsistent.
+  if (!columnElement) {
+    showToast(`Panel: column "${task.columnId}" for selected task not found in DOM — invariant broken`, 'error');
+    const mainLayout = document.getElementById("main");
+    if (mainLayout && $panel.parentElement !== mainLayout) mainLayout.appendChild($panel);
+    $panel.classList.remove('open');
+    return;
+  }
+
   const nextColumn = columnElement.nextSibling;
 
   $board.insertBefore($panel, nextColumn);

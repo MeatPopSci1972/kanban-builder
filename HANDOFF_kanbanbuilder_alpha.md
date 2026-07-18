@@ -172,12 +172,44 @@ way during the color+panel merge).
   in-page dialogs all need manual browser verification. Extracting the two
   panel *decisions* into `nextTaskSelection` / `shouldDismissPanel` pulled the
   testable logic across the line; the DOM half remains manual by design.
-* **`renderPanel` does `document.querySelector('[data-col-id=...]').nextSibling`.**
-  Safe today because the store guarantees every task's `columnId` is a real
-  column, so the element is always present — but it would throw if that ever
-  stopped holding. A defensive guard is a cheap future hardening.
+* **`renderPanel` column lookup is now guarded.** It resolves the selected
+  task's column via `document.querySelector('[data-col-id=...]')`. The store
+  still guarantees every task's `columnId` is a real column, so the element is
+  present in normal operation — but if that invariant ever breaks, `renderPanel`
+  now surfaces a named `showToast(..., 'error')` and bails to a safe closed
+  state instead of throwing on `.nextSibling`. `selectedTaskId` is left intact:
+  the selection is valid, the DOM is what's inconsistent.
+
+## Rendering posture (decided): stateless board, one persistent exception
+
+This is now a load-bearing rule, not an accident of how it was built.
+
+`renderBoard` tears down and rebuilds every column and card on each store
+`change`. The properties panel is the **single deliberately persistent DOM
+node** — moved via `insertBefore` rather than recreated. This is allowed
+*because no feature currently depends on any other node keeping identity across
+a rebuild*; persistence is not the bottleneck today, so we do not pre-build
+reconciliation for it (proto2prod: validate before optimize).
+
+**Tripwire — when this contract is spent.** The first time a feature's
+correctness depends on a *non-panel* node surviving a rebuild — e.g. a
+multi-board tab strip's active/animated state, or in-place editing that must
+keep input focus across a `change` — this posture no longer holds. At that
+point, graduate to keyed reconciliation (stable `data-id` + event delegation);
+do **not** reach for it before then. The likely trip point is the multi-board
+tab strip, so re-decide posture *when that feature starts*, not now.
+
+Guarded seam: `renderPanel`'s column lookup now fails loud-and-clean (named
+toast + bail to closed state) rather than throwing — see "Known limitations."
 
 ## Next: rendering architecture review (the reason for this handoff)
+
+**Status:** the posture question (Q3 of the review agenda) is now **decided —
+option B, above.** The perf-measurement (Q1) and transient-state audit (Q2)
+were inputs for choosing *between* postures and were deliberately deferred, not
+run. Still open for the review: Gemini's specific callouts (Q0), event
+delegation as a standalone win (Q4), and where the color-card visual and
+tab strip hook in (Q6).
 
 The user wants a **fresh-context look at the overall architecture, focused on
 rendering**, before any more key changes. Google's Gemini (which authored the
