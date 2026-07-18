@@ -205,8 +205,9 @@
 
   /* ══════════════════════════ PROPERTIES PANEL ══════════════════════════ */
 #panel {
+    --panel-w: 340px;                    /* single source of truth for panel open width */
     width: 0;
-    max-width: 340px;
+    max-width: var(--panel-w);
     flex-shrink: 0;
     background: var(--surface2);         /* Visually different background from standard columns */
     border: 1px solid var(--accent);     /* Distinct border styling to stand out */
@@ -219,25 +220,27 @@
     
     /* ADD THIS: Hide it from layout metrics entirely when closed */
     visibility: hidden;
-    margin-left: 0;
     
-    /* Smooth sliding animation using width and opacity */
+    /* Slide animation: width + opacity only (margin removed — board flex gap spaces the panel) */
     transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
                 opacity 0.25s ease, 
-                margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
                 visibility 0.35s step-end; /* step-end ensures visibility triggers instantly when closing */
   }
   #panel.open {
-    width: 340px;
+    width: var(--panel-w);
     opacity: 1;
-    margin-left: 14px;                   /* Match your board's column gap spacing */
+    margin-left: 0;                      /* board's flex gap:14px already spaces the panel — don't double it */
     visibility: visible;
     transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
                 opacity 0.25s ease, 
-                margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
                 visibility 0s step-start; /* step-start makes it visible immediately when opening */
   }
   #panel-head {
+    /* Pin to open inner width (panel width - 2px L/R border) so content lays
+       out once and the slide only clips it — kills the mid-slide reflow. */
+    width: calc(var(--panel-w) - 2px);
+    min-width: calc(var(--panel-w) - 2px);
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -250,6 +253,9 @@
   }
   #panel-head h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
   #panel-body {
+    width: calc(var(--panel-w) - 2px);
+    min-width: calc(var(--panel-w) - 2px);
+    flex-shrink: 0;
     padding: 14px;
     display: flex;
     flex-direction: column;

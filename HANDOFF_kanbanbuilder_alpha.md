@@ -38,11 +38,16 @@ testable without a DOM — keep tests on the store side of this line.
   6-digit lowercase hex; `''` = none; validated by `validColor`; tolerant on
   import so old saves load). The card does **not** paint it yet. Picker + card
   visual are open work in the render layer.
-* **Properties panel — hybrid, working.** `renderPanel` relocates it per-column
-  via `$board.insertBefore($panel, nextColumn)`; the `.open` class drives the
-  CSS reveal. Deselect → `appendChild` back to `#main`, remove `.open`. All
-  placement lives in `renderPanel` only — click / click-outside handlers just
-  set selection and call `render()`.
+* **Properties panel — hybrid, complete.** `renderPanel` relocates it per-column
+  via `$board.insertBefore($panel, nextColumn)`; the `.open` class drives the CSS
+  reveal (width `0`→`var(--panel-w)`). Deselect → `appendChild` back to `#main`,
+  remove `.open`. All placement lives in `renderPanel` only — click /
+  click-outside handlers just set selection and call `render()`.
+  Animation is settled — **don't undo these:** `#panel-head`/`#panel-body` are
+  pinned to `calc(var(--panel-w) - 2px)` (`min-width` + `flex-shrink:0`) so
+  content lays out once and the slide only clips it (no mid-slide reflow); the
+  panel carries **no margin** — the board's flex `gap:14px` already spaces it, so
+  re-adding `margin-left` double-spaces the left edge.
 
 ## Conventions (don't drift)
 
@@ -159,17 +164,16 @@ before:**
 
 ## Open work
 
-**Next task — panel reflow ("twitch") fix.** `#panel-head` / `#panel-body` have
-no fixed `width`/`min-width`, so inner text re-wraps every frame during the
-`0`→`340px` slide. Fix: give the inner content a fixed width matching the open
-state; the outer `#panel` (already `overflow: hidden`) clips it. a11y is already
-handled — closed state is `visibility: hidden` with step timing (out of tab
-order) — don't re-touch it.
+**Next task — task-color card visual + picker.** Store side is done
+(STORE-COMPLETE); the card just doesn't paint `color` yet. Wire a color picker
+into the panel (reuse `validColor` — don't add a second validator) and paint the
+card: the "gradient under a wire mesh" visual from the beta list. This lands in
+the render layer, and the render posture it depended on is now **decided**
+(below), so it is unblocked.
 
-**Still open:** task-color card visual + picker; event delegation as a
-standalone win; where the card visual and tab strip hook into the render path.
-Decide render posture **before** building the color card or workspace layer —
-both live in the render path.
+**Still open:** event delegation as a standalone win — **hold** until a tripwire
+trips (see Rendering posture), not now; multi-board workspace layer (see
+Deferred); where the tab strip hooks into the render path.
 
 *(Gemini's panel summary claimed "entirely CSS, dropped `insertBefore`" — false;
 `main` is the hybrid above. Its "infinite loop" and "hardware-accelerated"
