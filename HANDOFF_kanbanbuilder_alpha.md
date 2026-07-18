@@ -34,10 +34,21 @@ testable without a DOM — keep tests on the store side of this line.
 
 ## Current state
 
-* **Task color — STORE-COMPLETE, UI-PENDING.** Store carries `color` (canonical
+* **Task color — COMPLETE (store + UI).** Store carries `color` (canonical
   6-digit lowercase hex; `''` = none; validated by `validColor`; tolerant on
-  import so old saves load). The card does **not** paint it yet. Picker + card
-  visual are open work in the render layer.
+  import so old saves load). Panel has a native `<input type="color">` swatch +
+  explicit **Clear**; the blank swatch seeds from the live `--accent` token via
+  `themeSwatchSeed()` (guarded by `validColor`, with a constant fallback). The
+  card paints it as the "gradient under a wire mesh" treatment
+  (`.card.has-color` background layers + left `::before` stripe), keyed off
+  `--card-color` set in `renderCard`. All UI DOM, so manual-verify — not gated.
+* **Panel dismiss — guarded against mid-bubble detach.** The document
+  click-to-dismiss handler early-returns when `event.target.isConnected` is
+  false. A panel control whose dispatch re-renders (`$panelBody.innerHTML=''`)
+  detaches the clicked node before the global handler runs, which used to read
+  as an outside click and wrongly collapse the panel — hit both **Clear** and a
+  mouse-clicked **+ Add**. Guard lives in the DOM-gathering half;
+  `shouldDismissPanel` stays pure (Suite 9 untouched).
 * **Properties panel — hybrid, complete.** `renderPanel` relocates it per-column
   via `$board.insertBefore($panel, nextColumn)`; the `.open` class drives the CSS
   reveal (width `0`→`var(--panel-w)`). Deselect → `appendChild` back to `#main`,
@@ -48,13 +59,23 @@ testable without a DOM — keep tests on the store side of this line.
   content lays out once and the slide only clips it (no mid-slide reflow); the
   panel carries **no margin** — the board's flex `gap:14px` already spaces it, so
   re-adding `margin-left` double-spaces the left edge.
+* **Panel stays on-screen — SHIPPED.** Placement is consistent: the panel is
+  always inserted *after* the selected column (no left-flip for the last column —
+  consistency chosen over contextual placement). To keep a far-right/last-column
+  panel visible, `renderPanel` scrolls the real scroller (`#board-wrap`, not
+  `#board`) after insert. Decision is pure: `computePanelScroll(panelStart,
+  panelWidth, viewStart, viewWidth) → newScrollLeft | null` (Suite 9). The DOM
+  half measures the panel's left edge in scroller-content coords but uses the
+  panel's **final** `--panel-w` (+2px borders), not its animating `offsetWidth`,
+  so it's correct mid-slide and when re-opening while already open.
 
 ## Conventions (don't drift)
 
 * **Visible errors over graceful degradation.** Reject with a message naming
-  what's wrong; never silently coerce/truncate/default. (Watch: `loadSaved()`
-  falls back to `defaultBoard()` on a bad save with only `console.warn` — wants
-  a visible toast when persistence work happens.)
+  what's wrong; never silently coerce/truncate/default. (`loadSaved()` now
+  surfaces a deferred toast — `_bootLoadNotice` — when a saved board exists but
+  can't be loaded, shown after boot since loadSaved runs before the toast system
+  is live. A clean first run stays silent.)
 * **Shared validators, not copies.** `validColor` and `GITHUB_URL_BYTE_LIMIT`
   are module-level so store and UI reuse one definition.
 * **Color = `#rrggbb` lowercase only.** Shorthand/uppercase/named/`rgb()`/`hsl()`
@@ -102,11 +123,22 @@ console.log('syntax OK');
 
 ## Deferred / parked (don't rebuild without reading)
 
-* **Multi-board workspace.** Store stays single-board and never learns boards
-  exist. Multi-board = UI + persistence on the `IMPORT_BOARD`/`exportBoard`
-  seam: workspace = board envelopes + active id; tab switch imports into the one
-  store; active board scopes Save. Board name + color are workspace metadata,
-  not store state (board color reuses `validColor`). Tabs / New Board / pickers
+* **Blank-swatch seed couples to `--accent`.** `themeSwatchSeed()` derives the
+  default task color from the theme accent token. Fine now, but task-default and
+  UI-accent are different contracts; when theming lands, give the task-color
+  default its own token so a branding change to `--accent` doesn't drag every
+  blank swatch with it.
+* **Multi-board workspace — FROZEN (a future idea must be imagined first).** Not
+  a priority; do not build before the future concept shapes it. Browser tabs +
+  export/import cover casual multi-board today — but tabs share one
+  `kanbanbuilder_board_v1` key (same board across tabs, last-write-wins on save),
+  so tabs are multiple *views*, not multiple *boards*. Real isolation needs
+  per-board keys or the envelope design that follows. *Prior design, retained for
+  when it thaws:* store stays single-board and never learns boards exist;
+  multi-board = UI + persistence on the `IMPORT_BOARD`/`exportBoard` seam
+  (workspace = board envelopes + active id; tab switch imports into the one
+  store; active board scopes Save; board name + color are workspace metadata, not
+  store state, board color reuses `validColor`). Tabs / New Board / pickers
   unbuilt.
 * **Schema version / migration.** Deferred; task color was made additive to
   avoid a bump. First newly-required field forcing `SCHEMA_VERSION` 1→2 needs an
@@ -164,16 +196,21 @@ before:**
 
 ## Open work
 
-**Next task — task-color card visual + picker.** Store side is done
-(STORE-COMPLETE); the card just doesn't paint `color` yet. Wire a color picker
-into the panel (reuse `validColor` — don't add a second validator) and paint the
-card: the "gradient under a wire mesh" visual from the beta list. This lands in
-the render layer, and the render posture it depended on is now **decided**
-(below), so it is unblocked.
+**Recently shipped.** Task color (store + UI, wire-mesh visual); `loadSaved()`
+visible-toast; panel dismiss `isConnected` guard; panel stays on-screen
+(`computePanelScroll`). All gated where gate-able; DOM behavior manual-verify.
 
-**Still open:** event delegation as a standalone win — **hold** until a tripwire
-trips (see Rendering posture), not now; multi-board workspace layer (see
-Deferred); where the tab strip hooks into the render path.
+**Next task — OPEN.** No committed next feature. Multi-board (the prior "next
+frontier") is **FROZEN** pending a future concept that must be imagined first
+(see Deferred / parked). When that concept is named, drop a one-line placeholder
+here so a fresh thread knows what gates the thaw.
+
+**Candidates if you want a small win in the meantime:** none pressing. Remaining
+parked items are deliberately held, not queued — see below.
+
+**Still open / hold:** event delegation as a standalone win — **hold** until a
+tripwire trips (see Rendering posture), not now; schema migration (see
+Deferred); "Send to bot" / `ENSURE_COLUMN` (parked).
 
 *(Gemini's panel summary claimed "entirely CSS, dropped `insertBefore`" — false;
 `main` is the hybrid above. Its "infinite loop" and "hardware-accelerated"

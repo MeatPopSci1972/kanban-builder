@@ -166,6 +166,7 @@
     border-radius: var(--r1);
     padding: 10px;
     cursor: grab;
+    position: relative;
   }
   .card:active { cursor: grabbing; }
   .card:hover { border-color: var(--accent); }
@@ -176,6 +177,35 @@
   .card.card-drop-after  { box-shadow: 0  3px 0 0 var(--violet); }
   .card.task-drop-before { box-shadow: 0 -3px 0 0 var(--violet); }
   .card.task-drop-after  { box-shadow: 0  3px 0 0 var(--violet); }
+  /* task color = a left accent stripe painted from --card-color (set in renderCard).
+     A ::before overlay avoids shifting content and never collides with the
+     .selected / drop-indicator box-shadows above. Minimal by design; the
+     "gradient under a wire mesh" treatment is a deliberate later polish. */
+  /* task color = a "gradient under a wire mesh": a soft diagonal glow of the
+     color overlaid with a faint wireframe of the same color, over the normal
+     surface so text contrast holds. The left ::before stripe stays as a solid
+     at-a-glance marker that survives hover/selected (those only recolor the
+     border). Background-only here on purpose — setting border-color would lose
+     the hover/selected accent border to source-order at equal specificity. */
+  .card.has-color {
+    background-color: var(--surface2);
+    background-image:
+      repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--card-color) 18%, transparent) 0 1px,
+        transparent 1px 7px),
+      repeating-linear-gradient(-45deg,
+        color-mix(in srgb, var(--card-color) 18%, transparent) 0 1px,
+        transparent 1px 7px),
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--card-color) 26%, transparent),
+        transparent 68%);
+  }
+  .card.has-color::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; border-radius: var(--r1) 0 0 var(--r1);
+    background: var(--card-color);
+  }
   .card-title { font-size: 12px; font-weight: 500; word-break: break-word; }
   .card-created { font-size: 10px; color: var(--text-dim); margin-top: 6px; }
   .card-props { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
@@ -784,6 +814,19 @@ function shouldDismissPanel(isOpen, hits) {
   if (!isOpen) return false;
   return !(hits.card || hits.panel || hits.addColumn || hits.modal);
 }
+function computePanelScroll(panelStart, panelWidth, viewStart, viewWidth) {
+  // Given the just-opened panel's left edge + FINAL width (not its animating
+  // width) in board-content coords, and the board's current horizontal view
+  // window, return the scrollLeft that brings the panel fully into view — or
+  // null if it's already visible. Reveal the overflowing edge only; never
+  // scroll past 0. Placement stays consistent (panel is always after the
+  // selected column); this just keeps a far-right/last-column panel on-screen.
+  const panelEnd = panelStart + panelWidth;
+  const viewEnd = viewStart + viewWidth;
+  if (panelEnd > viewEnd)     return Math.max(0, panelEnd - viewWidth); // reveal right edge
+  if (panelStart < viewStart) return Math.max(0, panelStart);          // reveal left edge
+  return null;                                                          // already fully visible
+}
 
 /* ── GitHub "Send to Issue" link builder ──
    Pure, DOM-free. Opens a prefilled github.com/.../issues/new URL in a new
@@ -1386,6 +1429,21 @@ function runTests() {
     assert(shouldDismissPanel(true, { card: false, panel: false, addColumn: true,  modal: false }) === false, 'addColumn');
     assert(shouldDismissPanel(true, { card: false, panel: false, addColumn: false, modal: true  }) === false, 'modal');
   });
+  T('computePanelScroll: a fully visible panel needs no scroll (null)', () => {
+    assert(computePanelScroll(200, 340, 0, 1000) === null);
+  });
+  T('computePanelScroll: a panel past the right edge scrolls to reveal its right edge', () => {
+    // view 0..1000; panel 800..1140 overflows by 140 → scrollLeft 140 puts panelEnd at the edge
+    assert(computePanelScroll(800, 340, 0, 1000) === 140);
+  });
+  T('computePanelScroll: a panel left of the view scrolls back to its left edge', () => {
+    // view 500..1500; panel starts at 300, left of view → scroll to 300
+    assert(computePanelScroll(300, 340, 500, 1000) === 300);
+  });
+  T('computePanelScroll: never scrolls past 0', () => {
+    // panel starts left of a scrolled-right view but its start is negative → clamp to 0
+    assert(computePanelScroll(-50, 340, 100, 1000) === 0);
+  });
 
   return results;
 }
@@ -1406,17 +1464,30 @@ const COLUMN_MIME = 'application/x-kanbanbuilder-column';
    ── BOOT + PERSISTENCE ──
    ════════════════════════════════════════════════════════════════════ */
 const _BOARD_KEY = 'kanbanbuilder_board_v1';
+// Set when a saved board exists but can't be loaded, so we fell back to a fresh
+// one. Surfaced as a toast after boot (loadSaved runs before the toast system
+// exists). null = clean boot: either first run or a good save. Declared before
+// the store call below because loadSaved() runs during it.
+let _bootLoadNotice = null;
 const store = createStore(loadSaved());
 
 function loadSaved() {
   try {
     const raw = localStorage.getItem(_BOARD_KEY);
-    if (!raw) return defaultBoard();
+    if (!raw) return defaultBoard(); // first run — nothing saved, not an error
     const data = JSON.parse(raw);
     const v = validateBoard(data);
-    if (!v.ok) { console.warn('Saved board invalid, starting fresh:', v.errors); return defaultBoard(); }
+    if (!v.ok) {
+      console.warn('Saved board invalid, starting fresh:', v.errors);
+      _bootLoadNotice = 'Saved board was invalid and could not be loaded — started a fresh board.';
+      return defaultBoard();
+    }
     return buildStateFromBoard(data);
-  } catch (e) { return defaultBoard(); }
+  } catch (e) {
+    console.warn('Saved board could not be read, starting fresh:', e);
+    _bootLoadNotice = 'Saved board could not be read (' + e.message + ') — started a fresh board.';
+    return defaultBoard();
+  }
 }
 function defaultBoard() {
   return {
@@ -1638,6 +1709,13 @@ function renderCard(task) {
   $card.setAttribute('aria-label', 'Task: ' + task.title + '. Press up or down arrow to change its priority within this column.');
   $card.dataset.taskId = task.id;
   $card.dataset.order = String(task.order);
+  // Paint the task color as a left accent stripe. Blank ('') = no color, so the
+  // stripe (and its ::before) simply don't appear. renderBoard rebuilds cards on
+  // every change, so reading task.color here is enough — no diffing needed.
+  if (task.color) {
+    $card.classList.add('has-color');
+    $card.style.setProperty('--card-color', task.color);
+  }
 
   $card.appendChild(el('div', 'card-title', task.title));
   $card.appendChild(el('div', 'card-created', 'Created ' + fmtDate(task.createdDate)));
@@ -1755,6 +1833,18 @@ function moveTaskByKeyboard(taskId, delta) {
 }
 
 /* ── Properties panel ── */
+/* The blank-task swatch seeds from the active theme's accent, so it tracks the
+   theme instead of hardcoding a copy of the token value (which would drift the
+   day a second theme lands). Reuses the shared validColor gate: if a future
+   theme's --accent isn't a canonical #rrggbb, fall back visibly to a known-good
+   constant rather than letting <input type=color> silently coerce it to black.
+   Browser-only (uses getComputedStyle) — only ever called from renderPanel. */
+const SWATCH_SEED_FALLBACK = '#4af0c4';
+function themeSwatchSeed() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().toLowerCase();
+  return validColor(raw) === null && raw !== '' ? raw : SWATCH_SEED_FALLBACK;
+}
+
 function renderPanel(state) {
   const task = state.tasks.find(t => t.id === uiState.selectedTaskId);
   if (!task) { 
@@ -1791,6 +1881,18 @@ function renderPanel(state) {
   $board.insertBefore($panel, nextColumn);
 
   $panel.classList.add('open');
+
+  // Keep the just-opened panel on-screen. The horizontal scroller is #board-wrap
+  // (not #board). Measure the panel's LEFT edge in scroller-content coords, but
+  // use its FINAL width (--panel-w + 2px borders), not its animating offsetWidth,
+  // so this is correct mid-slide and when re-opening while already open. The
+  // decision is pure (computePanelScroll); this half only reads DOM + applies.
+  const $scroller = document.getElementById('board-wrap');
+  const panelStart = $panel.getBoundingClientRect().left - $scroller.getBoundingClientRect().left + $scroller.scrollLeft;
+  const panelWidth = parseInt(getComputedStyle($panel).getPropertyValue('--panel-w'), 10) + 2;
+  const targetScroll = computePanelScroll(panelStart, panelWidth, $scroller.scrollLeft, $scroller.clientWidth);
+  if (targetScroll !== null) $scroller.scrollTo({ left: targetScroll, behavior: 'smooth' });
+
   $panelBody.innerHTML = '';
 
   /* title */
@@ -1802,6 +1904,34 @@ function renderPanel(state) {
   $title.addEventListener('change', () => store.dispatch({ type: 'UPDATE_TASK', id: task.id, title: $title.value }));
   $fTitle.appendChild($title);
   $panelBody.appendChild($fTitle);
+
+  /* color — native swatch + explicit Clear. A native <input type="color"> can't
+     be empty, so "no color" is its own affordance: the swatch seeds to a default
+     when blank, a "No color" hint shows, and Clear dispatches color:''. We lean
+     on the store's existing validColor gate (no second validator here); the UI
+     just feeds it a canonical lowercase hex — not store-side coercion. */
+  const $fColor = el('div', 'field');
+  $fColor.appendChild(Object.assign(el('label'), { textContent: 'Color', htmlFor: 'panel-color' }));
+  const $colorRow = el('div');
+  $colorRow.style.display = 'flex';
+  $colorRow.style.gap = '6px';
+  $colorRow.style.alignItems = 'center';
+  const $color = el('input');
+  $color.type = 'color';
+  $color.id = 'panel-color';
+  $color.value = task.color || themeSwatchSeed();
+  $color.style.width = '48px';
+  $color.style.height = '30px';
+  $color.style.padding = '0';
+  $color.addEventListener('change', () => store.dispatch({ type: 'UPDATE_TASK', id: task.id, color: $color.value.toLowerCase() }));
+  const $colorClear = el('button', null, 'Clear');
+  $colorClear.type = 'button';
+  $colorClear.setAttribute('aria-label', 'Clear task color');
+  $colorClear.addEventListener('click', () => store.dispatch({ type: 'UPDATE_TASK', id: task.id, color: '' }));
+  $colorRow.append($color, $colorClear);
+  $fColor.appendChild($colorRow);
+  if (!task.color) $fColor.appendChild(el('div', 'hint', 'No color'));
+  $panelBody.appendChild($fColor);
 
   /* created date — read only, immutable in the store */
   const $fCreated = el('div', 'field');
@@ -2162,6 +2292,13 @@ document.getElementById('tests-modal').addEventListener('click', e => {
 
 // Dismiss properties panel when clicking outside active workspace zones
 document.addEventListener('click', (event) => {
+  // If the clicked element was already removed from the document before this
+  // global handler ran, an in-app control handled the click and rebuilt the DOM
+  // mid-bubble (e.g. a panel button whose dispatch re-renders the panel body via
+  // innerHTML=''). That is NOT an outside click, so don't dismiss — otherwise the
+  // detached target reports no #panel ancestor and the panel wrongly collapses.
+  // This is what made Clear (and a mouse-clicked + Add) close the panel.
+  if (!event.target.isConnected) return;
   // The DOM half: just gather where the click landed.
   const hits = {
     card:      !!event.target.closest('.card'),
@@ -2189,6 +2326,10 @@ $ghRepoInput.addEventListener('input', () => {
 });
 
 render();
+
+// Surface any deferred boot notice now that the toast system is live. A dropped
+// save is data loss the user must see — visible errors over graceful degradation.
+if (_bootLoadNotice) showToast(_bootLoadNotice, 'error');
 </script>
 </body>
 </html>
