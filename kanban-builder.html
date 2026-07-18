@@ -385,6 +385,7 @@
   <label id="gh-repo-label" for="gh-repo">repo:</label>
   <input type="text" id="gh-repo" placeholder="owner/repo" title="GitHub repo for 'Send to GitHub Issue' — e.g. octocat/hello-world" aria-label="GitHub repo, used by Send to GitHub Issue" style="width:140px;">
   <button id="btn-tests">Tests</button>
+  <button id="btn-clear-store" class="danger" title="Erase the saved board from this browser and reset to a fresh default board">Clear Store</button>
   <input type="file" id="file-import" accept=".json,application/json" hidden>
 </div>
 
@@ -796,6 +797,26 @@ function validColor(value) {
   if (value === '') return null; // no color set — allowed
   if (!COLOR_HEX.test(value)) return 'color must be a 6-digit lowercase hex like #3b82f6 — got "' + value + '"';
   return null;
+}
+
+/* ── Deployment identity (pure, DOM-free) ──
+   Each *copy* of this file carries its own ULID (see _BOARD_ULID at boot). The
+   localStorage key is derived from it, so two different deployments on one
+   origin — a fork, or a second copy of the file on the same GitHub Pages site —
+   land in separate slots instead of stomping one shared key. Two tabs of the
+   SAME file still share a board (same ULID): that is the multi-board question,
+   which stays frozen. Canonical form only, matching validColor's posture:
+   26-char uppercase Crockford base32, no widening without a test. */
+const ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford base32 — no I, L, O, U
+function isUlid(value) {
+  if (typeof value !== 'string' || value.length !== 26) return false;
+  for (const ch of value) if (!ULID_ALPHABET.includes(ch)) return false;
+  return true;
+}
+function boardStorageKey(ulid) {
+  // v1 keeps the schema-version namespace intact for a future migration; the
+  // ULID makes the slot unique per deployment.
+  return 'kanbanbuilder_board_v1_' + ulid;
 }
 
 /* ── Panel interaction decisions (pure, DOM-free) ──
@@ -1445,6 +1466,29 @@ function runTests() {
     assert(computePanelScroll(-50, 340, 100, 1000) === 0);
   });
 
+  SUITE('Suite 10 — Deployment storage key (pure)');
+  T('isUlid: accepts a canonical 26-char uppercase Crockford ULID', () => {
+    assert(isUlid('01ARZ3NDEKTSV4RRFFQ69G5FAV') === true);
+  });
+  T('isUlid: rejects the wrong length', () => {
+    assert(isUlid('01ARZ3NDEKTSV4RRFFQ69G5FA') === false, 'too short');
+    assert(isUlid('01ARZ3NDEKTSV4RRFFQ69G5FAVX') === false, 'too long');
+  });
+  T('isUlid: rejects excluded and lowercase letters (canonical uppercase only)', () => {
+    assert(isUlid('01ARZ3NDEKTSV4RRFFQ69G5FAL') === false, 'excluded L');
+    assert(isUlid('01ARZ3NDEKTSV4RRFFQ69G5FAi') === false, 'lowercase i');
+    assert(isUlid('01arz3ndektsv4rrffq69g5fav') === false, 'all lowercase');
+  });
+  T('isUlid: rejects non-strings', () => {
+    assert(isUlid(null) === false && isUlid(123) === false && isUlid(undefined) === false);
+  });
+  T('boardStorageKey: namespaces the ULID under the v1 schema prefix', () => {
+    assert(boardStorageKey('01ARZ3NDEKTSV4RRFFQ69G5FAV') === 'kanbanbuilder_board_v1_01ARZ3NDEKTSV4RRFFQ69G5FAV');
+  });
+  T('boardStorageKey: distinct ULIDs yield distinct keys — no cross-deployment collision', () => {
+    assert(boardStorageKey('01ARZ3NDEKTSV4RRFFQ69G5FAV') !== boardStorageKey('01BX5ZZKBKACTAV9WEVGEMMVRZ'));
+  });
+
   return results;
 }
 
@@ -1463,17 +1507,35 @@ const COLUMN_MIME = 'application/x-kanbanbuilder-column';
 /* ════════════════════════════════════════════════════════════════════
    ── BOOT + PERSISTENCE ──
    ════════════════════════════════════════════════════════════════════ */
-const _BOARD_KEY = 'kanbanbuilder_board_v1';
+// ── Deployment identity ──
+// _BOARD_ULID is baked per copy of this file. Forking, or dropping a second copy
+// on the same origin? Mint a fresh ULID (any generator) and paste it here so the
+// two deployments never share a localStorage slot. Two tabs of the SAME file
+// still share a board — that's the frozen multi-board question, not this.
+const _BOARD_ULID = '01KXV74QMDP9DN51JJTT4AQSBQ';
+const _LEGACY_BOARD_KEY = 'kanbanbuilder_board_v1'; // pre-ULID shared key: read once to migrate, never deleted
+const _BOARD_KEY = isUlid(_BOARD_ULID) ? boardStorageKey(_BOARD_ULID) : _LEGACY_BOARD_KEY;
 // Set when a saved board exists but can't be loaded, so we fell back to a fresh
 // one. Surfaced as a toast after boot (loadSaved runs before the toast system
 // exists). null = clean boot: either first run or a good save. Declared before
 // the store call below because loadSaved() runs during it.
 let _bootLoadNotice = null;
+// A malformed baked constant is a build error, surfaced loudly rather than
+// silently keying off garbage — we fall back to the legacy key so the app still
+// loads, and tell the developer to fix the ULID.
+if (!isUlid(_BOARD_ULID)) {
+  _bootLoadNotice = '_BOARD_ULID is malformed — using the legacy shared storage key. Fix the baked ULID constant.';
+}
 const store = createStore(loadSaved());
 
 function loadSaved() {
   try {
-    const raw = localStorage.getItem(_BOARD_KEY);
+    // Prefer this deployment's own slot. On a brand-new deployment that slot is
+    // empty; if a pre-ULID board exists under the legacy shared key, adopt it
+    // once — the next save() writes it into our slot. The legacy key is never
+    // deleted, since another deployment or tab may still be reading it.
+    let raw = localStorage.getItem(_BOARD_KEY);
+    if (!raw && _BOARD_KEY !== _LEGACY_BOARD_KEY) raw = localStorage.getItem(_LEGACY_BOARD_KEY);
     if (!raw) return defaultBoard(); // first run — nothing saved, not an error
     const data = JSON.parse(raw);
     const v = validateBoard(data);
@@ -2288,6 +2350,22 @@ document.getElementById('btn-tests-close').addEventListener('click', () =>
   document.getElementById('tests-modal').classList.remove('open'));
 document.getElementById('tests-modal').addEventListener('click', e => {
   if (e.target.id === 'tests-modal') e.target.classList.remove('open');
+});
+
+// Clear Store — wipe the persisted board and reset to a fresh default. Visible,
+// confirmed, and honest: the reset dispatches through the store like any other
+// change (fires 'change' → render + autosave), so localStorage ends holding a
+// clean default board rather than a dangling/absent key.
+document.getElementById('btn-clear-store').addEventListener('click', async () => {
+  const ok = await showConfirmDialog(
+    'Clear the saved board from this browser and reset to a fresh default board? Anything not exported to JSON will be lost.',
+    true
+  );
+  if (!ok) return;
+  uiState.selectedTaskId = null;
+  const r = store.dispatch({ type: 'IMPORT_BOARD', data: exportBoard(defaultBoard()) });
+  if (!r.ok) { showToast('Clear Store failed: ' + r.error, 'error'); return; }
+  showToast('Store cleared — reset to a fresh board', 'ok');
 });
 
 // Dismiss properties panel when clicking outside active workspace zones

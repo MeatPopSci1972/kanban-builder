@@ -29,8 +29,9 @@ testable without a DOM — keep tests on the store side of this line.
   `{app, schemaVersion, exportedAt, columns, tasks}`. Every import passes
   `validateBoard`.
 * **Pure helpers** (DOM-free): `reorderIndexExcludingSelf`, `computeDropIndex`,
-  `validColor`, `nextTaskSelection`, `shouldDismissPanel`, GitHub
-  issue-link/display formatters. Pure on purpose — keeps render/event code thin.
+  `validColor`, `nextTaskSelection`, `shouldDismissPanel`, `isUlid`,
+  `boardStorageKey`, GitHub issue-link/display formatters. Pure on purpose —
+  keeps render/event code thin.
 
 ## Current state
 
@@ -42,6 +43,21 @@ testable without a DOM — keep tests on the store side of this line.
   card paints it as the "gradient under a wire mesh" treatment
   (`.card.has-color` background layers + left `::before` stripe), keyed off
   `--card-color` set in `renderCard`. All UI DOM, so manual-verify — not gated.
+* **Per-deployment storage key + Clear Store — SHIPPED.** Storage key is now
+  `boardStorageKey(_BOARD_ULID)` → `kanbanbuilder_board_v1_<ULID>`, where
+  `_BOARD_ULID` is a constant baked per copy of the file (boot region). `v1`
+  keeps the schema-version namespace; the ULID isolates deployments so two
+  copies on one origin don't stomp one key. `loadSaved()` prefers this
+  deployment's slot and, if empty, adopts the pre-ULID `_LEGACY_BOARD_KEY`
+  (`kanbanbuilder_board_v1`) once — next `save()` writes it into the new slot;
+  legacy key is never deleted. Malformed `_BOARD_ULID` → fall back to legacy key
+  + `_bootLoadNotice`. `isUlid`/`boardStorageKey` are pure + gated (Suite 10);
+  the baked constant lives at boot, outside the gate. The **Clear Store** button
+  (toolbar, next to Tests, `danger` class) confirms via `showConfirmDialog`,
+  then dispatches `IMPORT_BOARD` of `exportBoard(defaultBoard())` so the reset
+  flows through the store (`change` → render + autosave) — UI DOM, manual-verify.
+  *Isolates deployments, not tabs: two tabs of the same file share one ULID =
+  one board (still the frozen multi-board question).*
 * **Panel dismiss — guarded against mid-bubble detach.** The document
   click-to-dismiss handler early-returns when `event.target.isConnected` is
   false. A panel control whose dispatch re-renders (`$panelBody.innerHTML=''`)
@@ -130,11 +146,14 @@ console.log('syntax OK');
   blank swatch with it.
 * **Multi-board workspace — FROZEN (a future idea must be imagined first).** Not
   a priority; do not build before the future concept shapes it. Browser tabs +
-  export/import cover casual multi-board today — but tabs share one
-  `kanbanbuilder_board_v1` key (same board across tabs, last-write-wins on save),
-  so tabs are multiple *views*, not multiple *boards*. Real isolation needs
-  per-board keys or the envelope design that follows. *Prior design, retained for
-  when it thaws:* store stays single-board and never learns boards exist;
+  export/import cover casual multi-board today — but tabs of the same file share
+  one `kanbanbuilder_board_v1_<ULID>` key (same board across tabs,
+  last-write-wins on save), so tabs are multiple *views*, not multiple *boards*.
+  The per-deployment ULID key (shipped) isolates *different copies* of the file,
+  not tabs of one — it does not thaw this. Real multi-board within a single file
+  still needs per-board keys or the envelope design that follows. *Prior design,
+  retained for when it thaws:* store stays single-board and never learns boards
+  exist;
   multi-board = UI + persistence on the `IMPORT_BOARD`/`exportBoard` seam
   (workspace = board envelopes + active id; tab switch imports into the one
   store; active board scopes Save; board name + color are workspace metadata, not
@@ -196,9 +215,12 @@ before:**
 
 ## Open work
 
-**Recently shipped.** Task color (store + UI, wire-mesh visual); `loadSaved()`
-visible-toast; panel dismiss `isConnected` guard; panel stays on-screen
-(`computePanelScroll`). All gated where gate-able; DOM behavior manual-verify.
+**Recently shipped.** Per-deployment ULID storage key (`isUlid` /
+`boardStorageKey`, Suite 10; baked `_BOARD_ULID` + non-destructive legacy
+migration in `loadSaved()`); **Clear Store** button; task color (store + UI,
+wire-mesh visual); `loadSaved()` visible-toast; panel dismiss `isConnected`
+guard; panel stays on-screen (`computePanelScroll`). All gated where gate-able;
+DOM behavior manual-verify. Gate is now 91/91 across 11 suites.
 
 **Next task — OPEN.** No committed next feature. Multi-board (the prior "next
 frontier") is **FROZEN** pending a future concept that must be imagined first
