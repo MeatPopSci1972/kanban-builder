@@ -1,101 +1,68 @@
 # KanbanBuilder — Handoff
 
-Read this before touching the file. Attach the current `kanban-builder.html`
-to whatever thread you paste this into — this document is context, not a
-substitute for the file itself.
-
-**This revision exists to set up a fresh architectural review of rendering.**
-See "Next: rendering architecture review" at the bottom — that is the agenda
-for the thread this handoff is being carried into. Everything above it is the
-state that review starts from.
+Attach the current `kanban-builder.html` to any thread you paste this into —
+this doc is context, not a substitute for the file. Source control:
+`github.com/MeatPopSci1972/kanban-builder` (`main`). Cross-thread reconciliation
+is a git concern. **LF only.**
 
 ## What this is
 
-Single-file, zero-dependency HTML/JS kanban board. No build step, no
-framework, no server. Opens as a local file or hosted on GitHub Pages.
-Following the same proto2prod discipline as SequenceBuilder: validate before
-optimizing, single-file first, visible errors over graceful degradation,
-document for a fresh instance as well as a human.
+Single-file, zero-dependency HTML/JS kanban board. No build, framework, or
+server. Opens as a local file or on GitHub Pages. proto2prod discipline:
+validate before optimize, single-file first, visible errors over graceful
+degradation, document for a fresh instance as well as a human.
 
-Now under real source control: `github.com/MeatPopSci1972/kanban-builder`
-(`main`). Reconciliation across threads is now a git concern, not a manual
-chat merge — see the last section.
+## The one rule
 
-## Architecture — the one rule that matters most
+**Store owns state contracts. UI owns rendering.** All state changes go through
+`store.dispatch({type, ...})` → `{ok:true,...}` or `{ok:false, error}`. Rejected
+actions never mutate and never fire `change`. This is why the store is fully
+testable without a DOM — keep tests on the store side of this line.
 
-**Store owns state contracts. UI owns rendering.** Never let UI code mutate
-state directly — everything goes through `store.dispatch({type, ...})`,
-which returns `{ok: true, ...}` or `{ok: false, error}`. Rejected actions
-never mutate state and never fire `change`. This boundary is why the test
-suite can pin down the store's behavior completely without touching a DOM —
-and it is exactly what let the task-color work (store) and the panel-placement
-work (UI) be built in two separate threads and merged with zero conflicts.
-
-* **Store** (`createStore`): dispatch/getState/on. Actions: `ADD_COLUMN`,
-  `RENAME_COLUMN`, `DELETE_COLUMN`, `REORDER_COLUMN`, `ADD_TASK`,
-  `UPDATE_TASK`, `MOVE_TASK`, `DELETE_TASK`, `ADD_PROPERTY`,
-  `UPDATE_PROPERTY`, `DELETE_PROPERTY`, `IMPORT_BOARD`.
+* **Store** (`createStore`): `dispatch`/`getState`/`on`. Actions: `ADD_COLUMN`,
+  `RENAME_COLUMN`, `DELETE_COLUMN`, `REORDER_COLUMN`, `ADD_TASK`, `UPDATE_TASK`,
+  `MOVE_TASK`, `DELETE_TASK`, `ADD_PROPERTY`, `UPDATE_PROPERTY`,
+  `DELETE_PROPERTY`, `IMPORT_BOARD`.
 * **Property types**: `text`, `text-large`, `date`, `link`, `image` — each
-  has its own store-level validation (see Conventions).
-* **Serializer**: `exportBoard`/`validateBoard`/`buildStateFromBoard`.
-  Canonical envelope: `{app, schemaVersion, exportedAt, columns, tasks}`.
-  `validateBoard` is the single gate every import must pass through.
-* **Pure helpers (DOM-free, on the testable side of the line):**
-  positioning (`reorderIndexExcludingSelf`, `computeDropIndex`), color
-  (`validColor`), panel decisions (`nextTaskSelection`, `shouldDismissPanel`),
-  and the GitHub issue-link + display formatters. These are pure on purpose so
-  the render/event code stays thin and the logic stays pinned.
+  store-validated.
+* **Serializer**: `exportBoard`/`validateBoard`/`buildStateFromBoard`. Envelope
+  `{app, schemaVersion, exportedAt, columns, tasks}`. Every import passes
+  `validateBoard`.
+* **Pure helpers** (DOM-free): `reorderIndexExcludingSelf`, `computeDropIndex`,
+  `validColor`, `nextTaskSelection`, `shouldDismissPanel`, GitHub
+  issue-link/display formatters. Pure on purpose — keeps render/event code thin.
 
-## What changed since the last handoff
+## Current state
 
-Two independent feature lines, now merged into `main` + this file:
+* **Task color — STORE-COMPLETE, UI-PENDING.** Store carries `color` (canonical
+  6-digit lowercase hex; `''` = none; validated by `validColor`; tolerant on
+  import so old saves load). The card does **not** paint it yet. Picker + card
+  visual are open work in the render layer.
+* **Properties panel — hybrid, working.** `renderPanel` relocates it per-column
+  via `$board.insertBefore($panel, nextColumn)`; the `.open` class drives the
+  CSS reveal. Deselect → `appendChild` back to `#main`, remove `.open`. All
+  placement lives in `renderPanel` only — click / click-outside handlers just
+  set selection and call `render()`.
 
-* **Task color (store).** Tasks carry a `color` field. Canonical stored form
-  is a **6-digit lowercase hex** (`#3b82f6`) — exactly what a native
-  `<input type="color">` emits, and a valid CSS color. Blank `''` means "no
-  color" and is allowed. Validated by `validColor` (module-level, shared).
-  `ADD_TASK` defaults it to `''`; `UPDATE_TASK` sets it through the gate;
-  export/import/rehydrate all carry it; `validateBoard` checks it **only when
-  present**, so old saves without a color still import (schema stayed at
-  version 1 — see "deferred" below).
-  **STORE-COMPLETE, UI-PENDING:** the store fully supports task color, but the
-  card does **not** yet paint it. The "gradient under a wire mesh" card visual
-  from the beta list is unbuilt. Wiring a picker + card rendering is open work,
-  and it lands in the render layer — i.e. it depends on the rendering review.
+## Conventions (don't drift)
 
-* **Properties panel placement (UI).** The panel moved from a fixed
-  right-hand `aside` to a sliding panel that **physically relocates in the
-  DOM** to sit immediately after the selected task's column
-  (`$board.insertBefore($panel, nextColumn)`), animated via an `.open` class
-  (width/opacity/visibility transitions). Deselecting moves it back into
-  `#main` and removes `.open` — and that placement logic lives in **exactly
-  one place, `renderPanel`**. The card click handler and the click-outside
-  handler now only decide *what* is selected (via the two pure functions) and
-  call `render()`; they no longer duplicate placement.
-
-## Conventions (don't drift from these)
-
-* **Visible errors over graceful degradation.** Reject with a clear message
-  naming what's wrong; never silently coerce, truncate, or default. (Note the
-  one standing exception to watch: `loadSaved()` falls back to `defaultBoard()`
-  on an invalid save with only a `console.warn` — a silent-ish path flagged
-  for a visible toast when the schema/persistence work happens.)
-* **Shared constants/validators, not duplicated logic.** `GITHUB_URL_BYTE_LIMIT`
-  is one number with two uses. `validColor` is one validator meant for **both**
-  task color (store) and the future board color picker (UI) — it's module-level
-  specifically so the UI can call it without a second copy.
-* **Color is canonical `#rrggbb` lowercase.** Shorthand (`#fff`), uppercase,
-  named colors, and `rgb()`/`hsl()` are **deliberately rejected for now.**
-  Widen the gate on purpose, with tests — do not add silent normalization.
-* **Images are relative path strings only.** Never `data:` URIs, never base64
-  in JSON. Enforced at the store level.
+* **Visible errors over graceful degradation.** Reject with a message naming
+  what's wrong; never silently coerce/truncate/default. (Watch: `loadSaved()`
+  falls back to `defaultBoard()` on a bad save with only `console.warn` — wants
+  a visible toast when persistence work happens.)
+* **Shared validators, not copies.** `validColor` and `GITHUB_URL_BYTE_LIMIT`
+  are module-level so store and UI reuse one definition.
+* **Color = `#rrggbb` lowercase only.** Shorthand/uppercase/named/`rgb()`/`hsl()`
+  rejected on purpose. Widen the gate deliberately, with tests — no silent
+  normalization.
+* **Images = relative path strings only.** No `data:`/base64. Enforced at store
+  level.
 * **Naming consistency is load-bearing.** Rename everywhere: UI, comments,
   tests, error strings. "No one sees it" is not a reason to skip a spot.
-* **Gate every change.** The pin-down suite must be green before anything
-  ships. Currently: **81/81, across 10 suites** (1, 2, 3, 3b, 4, 5, 6, 7, 8, 9).
-  The tests modal counts dynamically — there is no hardcoded total to update.
+* **Gate every change** green before shipping. The suite counts dynamically —
+  no hardcoded total to update.
 
-## How to run the gate (headless, no browser needed)
+## Gate (headless, no browser)
 
 ```bash
 node -e "
@@ -113,7 +80,7 @@ process.exit(failed.length ? 1 : 0);
 "
 ```
 
-Full-script syntax check before shipping:
+Syntax check before shipping:
 
 ```bash
 node -e "
@@ -126,114 +93,84 @@ console.log('syntax OK');
 "
 ```
 
-Line endings: `main` and this file are **LF**. Keep them LF — a CRLF/LF
-mismatch makes `git merge-file` treat every line as changed (learned the hard
-way during the color+panel merge).
+**LF only** — CRLF makes `git merge-file` treat every line as changed.
 
-## Deferred / parked (designed, not built — don't rebuild without reading)
+## Deferred / parked (don't rebuild without reading)
 
-* **Multi-board workspace layer.** Decided architecture: the **store stays
-  single-board** and never learns boards exist. "Multi-board" is a UI +
-  persistence layer riding the existing `IMPORT_BOARD`/`exportBoard` seam —
-  a workspace = a list of board envelopes + an active id; switching a tab
-  imports that board into the one store; "active board in UI" also scopes
-  Save (for now). Board **name** and board **color** are workspace-layer
-  metadata, **not** store state (that's why board color reuses `validColor`
-  from the UI side). Tabs, "New Board," and the pickers are all unbuilt.
-* **Schema version / migration.** Deliberately deferred. Task color was made
-  additive + tolerant to avoid a bump. When multi-board or any newly-required
-  field forces `SCHEMA_VERSION` 1 → 2, that needs an explicit, visible upgrade
-  path (old single-board saves adopted as board #1), not a silent wipe.
-* **"Send to bot" / `ENSURE_COLUMN`.** Parked pending vetting. `ENSURE_COLUMN`
-  (idempotent "column exists → ok; absent → create, `created:true`") was
-  designed as the honest, contracted way for a bot flow to spawn a
-  pending-review column without an out-of-band mutation. Not built.
+* **Multi-board workspace.** Store stays single-board and never learns boards
+  exist. Multi-board = UI + persistence on the `IMPORT_BOARD`/`exportBoard`
+  seam: workspace = board envelopes + active id; tab switch imports into the one
+  store; active board scopes Save. Board name + color are workspace metadata,
+  not store state (board color reuses `validColor`). Tabs / New Board / pickers
+  unbuilt.
+* **Schema version / migration.** Deferred; task color was made additive to
+  avoid a bump. First newly-required field forcing `SCHEMA_VERSION` 1→2 needs an
+  explicit, visible upgrade (old saves → board #1), not a silent wipe.
+* **"Send to bot" / `ENSURE_COLUMN`.** Parked. Idempotent "exists → ok; absent →
+  create `created:true`" as the contracted way a bot spawns a review column.
+  Not built.
 
-## Explicitly rejected or removed — don't rebuild without a new reason
+## Rejected (don't rebuild without a new reason)
 
-* **GitHub Gist as a shared-state backend.** Token-in-localStorage blast
-  radius across `file://` origins; a "secret" Gist's read side needs no auth;
-  no conflict detection. Never built. If revisited, use Gist `history`
-  revision ids as a version-guard from the start.
-* **GitHub-Issues-backend (labels-as-columns).** Fully built, then deleted
-  after finding GitHub Projects v2 does it better. If wanted again, target
-  Projects v2's real API (GraphQL `updateProjectV2ItemPosition`), not labels +
-  issue bodies.
-* **Restricting "+Task" to a single column.** Discussed, not built. If wanted,
-  a real store-level "designated intake column" flag with an honest rejection —
-  not a hidden button.
+* **Gist as shared-state backend.** Token-in-localStorage blast radius on
+  `file://`; a secret Gist's read side needs no auth; no conflict detection. If
+  revisited, use Gist `history` revision ids as a version guard from day one.
+* **GitHub-Issues backend (labels-as-columns).** Built, then deleted — Projects
+  v2 does it better. If wanted, target Projects v2 GraphQL
+  (`updateProjectV2ItemPosition`), not labels + issue bodies.
+* **"+Task" restricted to one column.** Not built. If wanted, a real store-level
+  "intake column" flag with an honest rejection — not a hidden button.
 
-## Known limitations, stated plainly
+## Known limitations
 
-* **WCAG target is 2.2 AA**, not 3.0 (3.0 is still a W3C Working Draft).
-* **Nothing touching a real browser is covered by the automated gate.** The
-  headless harness exercises pure functions and the store only. The panel's
-  CSS slide, the DOM `insertBefore` placement, the image picker, and the
-  in-page dialogs all need manual browser verification. Extracting the two
-  panel *decisions* into `nextTaskSelection` / `shouldDismissPanel` pulled the
-  testable logic across the line; the DOM half remains manual by design.
-* **`renderPanel` column lookup is now guarded.** It resolves the selected
-  task's column via `document.querySelector('[data-col-id=...]')`. The store
-  still guarantees every task's `columnId` is a real column, so the element is
-  present in normal operation — but if that invariant ever breaks, `renderPanel`
-  now surfaces a named `showToast(..., 'error')` and bails to a safe closed
-  state instead of throwing on `.nextSibling`. `selectedTaskId` is left intact:
-  the selection is valid, the DOM is what's inconsistent.
+* **WCAG target 2.2 AA** (3.0 is still a Working Draft).
+* **Nothing touching a real browser is gated.** The headless harness covers pure
+  functions + store only. Panel slide, `insertBefore` placement, image picker,
+  and in-page dialogs need manual browser verification.
+* **`renderPanel` column lookup is guarded.** Resolves the column via
+  `querySelector('[data-col-id=...]')`. The store guarantees `columnId` is real,
+  so it's present in normal operation; if that invariant breaks, `renderPanel`
+  fires a named error toast and bails to closed instead of throwing on
+  `.nextSibling`. `selectedTaskId` is left intact — selection valid, DOM
+  inconsistent.
 
-## Rendering posture (decided): stateless board, one persistent exception
+## Rendering posture (decided)
 
-This is now a load-bearing rule, not an accident of how it was built.
+`renderBoard` tears down and rebuilds every column and card on each `change`
+(`render()` → `renderBoard` → `$board.innerHTML=''`). No diffing, no event
+delegation — full rebuild each time. Simple and correct; validate before
+optimize.
 
-`renderBoard` tears down and rebuilds every column and card on each store
-`change`. The properties panel is the **single deliberately persistent DOM
-node** — moved via `insertBefore` rather than recreated. This is allowed
-*because no feature currently depends on any other node keeping identity across
-a rebuild*; persistence is not the bottleneck today, so we do not pre-build
-reconciliation for it (proto2prod: validate before optimize).
+**Panel = persistent by reference, not in place.** `$board.innerHTML=''`
+detaches it every render; the `$panel` reference keeps the node alive;
+`renderPanel` re-inserts it. Node identity survives; DOM position and running
+transitions do not.
 
-**Tripwire — when this contract is spent.** The first time a feature's
-correctness depends on a *non-panel* node surviving a rebuild — e.g. a
-multi-board tab strip's active/animated state, or in-place editing that must
-keep input focus across a `change` — this posture no longer holds. At that
-point, graduate to keyed reconciliation (stable `data-id` + event delegation);
-do **not** reach for it before then. The likely trip point is the multi-board
-tab strip, so re-decide posture *when that feature starts*, not now.
+**Tripwire — graduate to keyed reconciliation (`data-id` + delegation) when, not
+before:**
 
-Guarded seam: `renderPanel`'s column lookup now fails loud-and-clean (named
-toast + bail to closed state) rather than throwing — see "Known limitations."
+1. *Nearer* — any animation/transition **on or inside the panel** must survive a
+   `change`. Detach cancels it every render. Invisible today (panel eases open
+   once, then re-inserts already-`.open`). Breaks the moment an in-panel element
+   must animate *across* a state change.
+2. *Later* — a *non-panel* node's correctness depends on surviving a rebuild
+   (multi-board tab strip active state; in-place editing keeping focus). Likely
+   first real trip = the tab strip; re-decide posture when it starts.
 
-## Next: rendering architecture review (the reason for this handoff)
+## Open work
 
-**Status:** the posture question (Q3 of the review agenda) is now **decided —
-option B, above.** The perf-measurement (Q1) and transient-state audit (Q2)
-were inputs for choosing *between* postures and were deliberately deferred, not
-run. Still open for the review: Gemini's specific callouts (Q0), event
-delegation as a standalone win (Q4), and where the color-card visual and
-tab strip hook in (Q6).
+**Next task — panel reflow ("twitch") fix.** `#panel-head` / `#panel-body` have
+no fixed `width`/`min-width`, so inner text re-wraps every frame during the
+`0`→`340px` slide. Fix: give the inner content a fixed width matching the open
+state; the outer `#panel` (already `overflow: hidden`) clips it. a11y is already
+handled — closed state is `visibility: hidden` with step timing (out of tab
+order) — don't re-touch it.
 
-The user wants a **fresh-context look at the overall architecture, focused on
-rendering**, before any more key changes. Google's Gemini (which authored the
-panel-placement work on `main`) called out rendering opportunities — **bring
-those specific callouts into the review; they are not captured here.**
+**Still open:** task-color card visual + picker; event delegation as a
+standalone win; where the card visual and tab strip hook into the render path.
+Decide render posture **before** building the color card or workspace layer —
+both live in the render path.
 
-Current rendering approach, stated factually as the starting point (these are
-observations for the review to weigh, NOT decisions already made):
-
-* `render()` runs on **every** store `change` and rebuilds everything:
-  `renderBoard(state)` recreates every column and card — and re-attaches every
-  drag/click/keydown listener — from scratch; `renderPanel(state)` clears
-  `$panelBody.innerHTML` and rebuilds all fields.
-* There is **no reconciliation/diffing and no event delegation** — it's a full
-  teardown-and-rebuild each time. This is simple and correct (proto2prod:
-  validate before optimize), which is why it shipped this way.
-* The panel is a single persistent DOM node moved around via
-  `insertBefore`/`appendChild` between renders, rather than re-created.
-
-Open questions a rendering review would likely take up: whether full-rebuild
-is a real problem at expected board sizes or a premature-optimization trap;
-event delegation vs. per-element listeners; reconciling changed
-columns/tasks vs. rebuilding all; where the not-yet-built task-color card
-visual and the multi-board tab strip should hook in; and whether any of this
-warrants a render abstraction or stays deliberately hand-rolled. Decide the
-rendering posture **before** building the color card visual or the workspace
-layer, since both live in the render path.
+*(Gemini's panel summary claimed "entirely CSS, dropped `insertBefore`" — false;
+`main` is the hybrid above. Its "infinite loop" and "hardware-accelerated"
+reasons are both wrong — don't canonize them.)*
