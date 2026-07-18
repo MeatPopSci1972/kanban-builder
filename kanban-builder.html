@@ -147,6 +147,18 @@
     color: var(--text-dim); font-size: 14px; line-height: 1;
   }
   .col-del:hover { color: var(--danger); background: var(--surface2); }
+  .col-add {
+    background: none; border: none; padding: 2px 6px;
+    color: var(--text-dim); font-size: 15px; line-height: 1;
+    flex-shrink: 0; cursor: pointer; border-radius: var(--r1);
+  }
+  .col-add:hover { color: var(--accent); background: var(--surface2); }
+  .col-add:focus-visible { outline: none; box-shadow: var(--focus-ring); color: var(--accent); }
+  .board-empty {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 120px; padding: 32px; width: 100%;
+    color: var(--text-dim); font-size: 13px;
+  }
 
   .col-body {
     padding: 10px; display: flex; flex-direction: column; gap: 8px;
@@ -378,7 +390,6 @@
   <span id="app-title">Kanban<span class="accent">Builder</span></span>
   <span id="app-version">v0.1.0</span>
   <span id="stats"></span>
-  <button id="btn-add-col" class="primary">+ Column</button>
   <button id="btn-import" title="Open a saved board from a JSON file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg> Open</button>
   <button id="btn-export" title="Save the current board to a JSON file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg> Save</button>
   <span id="toolbar-divider" aria-hidden="true"></span>
@@ -498,8 +509,18 @@ function createStore(initialState) {
       case 'ADD_COLUMN': {
         const name = (action.name || '').trim();
         if (!name) return _reject('ADD_COLUMN: name is required');
+        if (action.afterId != null && !_col(action.afterId))
+          return _reject('ADD_COLUMN: afterId "' + action.afterId + '" is not a known column');
         const col = { id: uid('col'), name, order: state.columns.length };
         state.columns.push(col);
+        if (action.afterId != null) {
+          // Insert immediately to the right of afterId in order-space, then
+          // reindex contiguously — same splice/reindex shape as REORDER_COLUMN.
+          const ordered = [...state.columns].sort((a, b) => a.order - b.order);
+          ordered.splice(ordered.indexOf(col), 1);
+          ordered.splice(ordered.findIndex(c => c.id === action.afterId) + 1, 0, col);
+          ordered.forEach((c, i) => c.order = i);
+        }
         return _accept({ id: col.id });
       }
       case 'RENAME_COLUMN': {
@@ -955,6 +976,32 @@ function runTests() {
     const s = fresh();
     assert(!s.dispatch({ type: 'ADD_COLUMN', name: '   ' }).ok, 'should reject');
     assert(s.getState().columns.length === 0, 'state must not mutate on reject');
+  });
+  T('ADD_COLUMN with afterId inserts immediately to the right and reindexes', () => {
+    const s = fresh();
+    const a = s.dispatch({ type: 'ADD_COLUMN', name: 'A' }).id;
+    s.dispatch({ type: 'ADD_COLUMN', name: 'C' });
+    const b = s.dispatch({ type: 'ADD_COLUMN', name: 'B', afterId: a }).id;
+    const names = s.getState().columns.sort((x, y) => x.order - y.order).map(c => c.name);
+    assert(JSON.stringify(names) === JSON.stringify(['A', 'B', 'C']), 'order wrong: ' + names);
+    const orders = s.getState().columns.map(c => c.order).sort((x, y) => x - y);
+    assert(JSON.stringify(orders) === JSON.stringify([0, 1, 2]), 'orders must be contiguous: ' + orders);
+    assert(s.getState().columns.find(c => c.id === b).order === 1, 'B must land at index 1');
+  });
+  T('ADD_COLUMN afterId the last column appends to the right end', () => {
+    const s = fresh();
+    s.dispatch({ type: 'ADD_COLUMN', name: 'A' });
+    const b = s.dispatch({ type: 'ADD_COLUMN', name: 'B' }).id;
+    s.dispatch({ type: 'ADD_COLUMN', name: 'C', afterId: b });
+    const names = s.getState().columns.sort((x, y) => x.order - y.order).map(c => c.name);
+    assert(JSON.stringify(names) === JSON.stringify(['A', 'B', 'C']), 'order wrong: ' + names);
+  });
+  T('ADD_COLUMN rejects an unknown afterId without mutating', () => {
+    const s = fresh();
+    s.dispatch({ type: 'ADD_COLUMN', name: 'A' });
+    const r = s.dispatch({ type: 'ADD_COLUMN', name: 'B', afterId: 'ghost' });
+    assert(!r.ok && /afterId/.test(r.error), 'must reject naming afterId: ' + JSON.stringify(r));
+    assert(s.getState().columns.length === 1, 'state must not mutate on reject');
   });
   T('RENAME_COLUMN changes name only', () => {
     const { s, c1 } = seeded();
@@ -1668,6 +1715,12 @@ function renderBoard(state) {
     });
     $head.appendChild($grab);
 
+    const $addRight = el('button', 'col-add', '+');
+    $addRight.title = 'Add a column to the right';
+    $addRight.setAttribute('aria-label', 'Add a new column to the right of "' + col.name + '"');
+    $addRight.addEventListener('click', () => addColumn(col.id));
+    $head.appendChild($addRight);
+
     if (uiState.editingColumnId === col.id) {
       const $inp = el('input', 'col-name-input');
       $inp.value = col.name;
@@ -1733,6 +1786,17 @@ function renderBoard(state) {
 
     $board.appendChild($col);
   });
+
+  // No columns left? Add-a-column now lives on each column, so an empty board
+  // would otherwise be a dead end — offer a way back in.
+  if (ordered.length === 0) {
+    const $empty = el('div', 'board-empty');
+    const $btn = el('button', 'col-add primary', '+ Add your first column');
+    $btn.style.fontSize = '13px';
+    $btn.addEventListener('click', () => addColumn());
+    $empty.appendChild($btn);
+    $board.appendChild($empty);
+  }
 }
 
 let _pendingFocusColId = null;
@@ -1740,6 +1804,15 @@ let _pendingFocusColId = null;
 function reorderColumn(colId, toIndex) {
   const r = store.dispatch({ type: 'REORDER_COLUMN', id: colId, toIndex });
   if (r.ok) _pendingFocusColId = colId;
+}
+
+async function addColumn(afterId) {
+  const name = await showPromptDialog('New column name:');
+  if (name === null) return;
+  const action = { type: 'ADD_COLUMN', name };
+  if (afterId != null) action.afterId = afterId; // omit → append as the last column
+  const r = store.dispatch(action);
+  if (r.ok) _pendingFocusColId = r.id; // land focus on the new column's move handle
 }
 
 function moveColumnByKeyboard(colId, toIndex) {
@@ -2282,12 +2355,6 @@ function showConfirmDialog(message, danger) { return showDialog({ message, isPro
 store.on('change', () => { render(); save(); });
 store.on('error', err => showToast(err, 'error'));
 
-document.getElementById('btn-add-col').addEventListener('click', async () => {
-  const name = await showPromptDialog('Column name:');
-  if (name === null) return;
-  store.dispatch({ type: 'ADD_COLUMN', name });
-});
-
 document.getElementById('btn-export').addEventListener('click', () => {
   const data = exportBoard(store.getState());
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2381,7 +2448,7 @@ document.addEventListener('click', (event) => {
   const hits = {
     card:      !!event.target.closest('.card'),
     panel:     !!event.target.closest('#panel'),
-    addColumn: !!event.target.closest('#btn-add-col'),
+    addColumn: !!event.target.closest('.col-add'),
     modal:     !!event.target.closest('#dialog-modal, #tests-modal')
   };
   // The decision half: pure, pinned by Suite 9.

@@ -19,7 +19,9 @@ degradation, document for a fresh instance as well as a human.
 actions never mutate and never fire `change`. This is why the store is fully
 testable without a DOM — keep tests on the store side of this line.
 
-* **Store** (`createStore`): `dispatch`/`getState`/`on`. Actions: `ADD_COLUMN`,
+* **Store** (`createStore`): `dispatch`/`getState`/`on`. Actions: `ADD_COLUMN`
+  (optional `afterId` inserts the new column immediately to that column's right,
+  then reindexes; unknown `afterId` rejects; omit to append),
   `RENAME_COLUMN`, `DELETE_COLUMN`, `REORDER_COLUMN`, `ADD_TASK`, `UPDATE_TASK`,
   `MOVE_TASK`, `DELETE_TASK`, `ADD_PROPERTY`, `UPDATE_PROPERTY`,
   `DELETE_PROPERTY`, `IMPORT_BOARD`.
@@ -58,6 +60,18 @@ testable without a DOM — keep tests on the store side of this line.
   flows through the store (`change` → render + autosave) — UI DOM, manual-verify.
   *Isolates deployments, not tabs: two tabs of the same file share one ULID =
   one board (still the frozen multi-board question).*
+* **Add-column moved onto columns — SHIPPED.** The toolbar `+ Column` button and
+  its handler are gone. Each column header now carries a `.col-add` (`+`) button
+  beside the `.col-grab` move handle; click → `addColumn(col.id)` → prompt →
+  `ADD_COLUMN` with `afterId`, inserting to that column's right, then focus lands
+  on the new column's move handle (`_pendingFocusColId`). Store-side insertion +
+  reindex is gated (Suite 1, `afterId` tests); the button/prompt/focus are UI
+  DOM, manual-verify. Because the last column is deletable, an empty board would
+  be a dead end, so `renderBoard` renders a `.board-empty` "add your first
+  column" affordance (also `.col-add`, calls `addColumn()` with no `afterId` →
+  append). Panel-dismiss hit-test now protects `.col-add` (was `#btn-add-col`);
+  the pure `shouldDismissPanel` + Suite 9 are unchanged (the `addColumn` hit key
+  is semantic).
 * **Panel dismiss — guarded against mid-bubble detach.** The document
   click-to-dismiss handler early-returns when `event.target.isConnected` is
   false. A panel control whose dispatch re-renders (`$panelBody.innerHTML=''`)
@@ -215,12 +229,14 @@ before:**
 
 ## Open work
 
-**Recently shipped.** Per-deployment ULID storage key (`isUlid` /
+**Recently shipped.** Per-column add-to-right (`.col-add` beside the move
+handle; `ADD_COLUMN` `afterId`, Suite 1) + empty-board affordance, replacing the
+removed toolbar `+ Column`; per-deployment ULID storage key (`isUlid` /
 `boardStorageKey`, Suite 10; baked `_BOARD_ULID` + non-destructive legacy
 migration in `loadSaved()`); **Clear Store** button; task color (store + UI,
 wire-mesh visual); `loadSaved()` visible-toast; panel dismiss `isConnected`
 guard; panel stays on-screen (`computePanelScroll`). All gated where gate-able;
-DOM behavior manual-verify. Gate is now 91/91 across 11 suites.
+DOM behavior manual-verify. Gate is now 94/94 across 11 suites.
 
 **Next task — OPEN.** No committed next feature. Multi-board (the prior "next
 frontier") is **FROZEN** pending a future concept that must be imagined first
