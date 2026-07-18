@@ -25,8 +25,12 @@ testable without a DOM — keep tests on the store side of this line.
   `RENAME_COLUMN`, `DELETE_COLUMN`, `REORDER_COLUMN`, `ADD_TASK`, `UPDATE_TASK`,
   `MOVE_TASK`, `DELETE_TASK`, `ADD_PROPERTY`, `UPDATE_PROPERTY`,
   `DELETE_PROPERTY`, `IMPORT_BOARD`.
-* **Property types**: `text`, `text-large`, `date`, `link`, `image` — each
-  store-validated.
+* **Property types**: `text`, `text-large`, `date`, `link`, `image`, `sequence`
+  — each store-validated. All type-specific behavior (label, field descriptor,
+  value validator, card display, issue formatting) lives in one `PROP_TYPE_SPEC`
+  row per type (Strategy table). `PROP_TYPES` / `PROP_TYPE_LABELS` derive from it.
+  Adding a type = one new row; do NOT scatter `if (type === ...)` ladders back
+  across the store / `validateBoard` / field factory / formatters.
 * **Serializer**: `exportBoard`/`validateBoard`/`buildStateFromBoard`. Envelope
   `{app, schemaVersion, exportedAt, columns, tasks}`. Every import passes
   `validateBoard`.
@@ -34,8 +38,34 @@ testable without a DOM — keep tests on the store side of this line.
   `validColor`, `uniqueDefaultTitle`, `nextTaskSelection`, `shouldDismissPanel`,
   `isUlid`, `boardStorageKey`, GitHub issue-link/display formatters. Pure on
   purpose — keeps render/event code thin.
+* **Shared value validators** (module-level, DOM-free): `validRelativePath`
+  (image *and* sequence), `validLongText`, `validDateValue`. Called by the store
+  (ADD/UPDATE_PROPERTY) *and* `validateBoard` — one definition each, no drift.
+  These were hoisted out of the store closure so `validateBoard` stops
+  re-implementing them. Referenced from `PROP_TYPE_SPEC.*.validate`.
 
 ## Current state
+
+* **Property-type registry + `sequence` type — SHIPPED (v0.2.0).** All
+  type-specific behavior moved into a `PROP_TYPE_SPEC` Strategy table (label,
+  `field` descriptor, `validate`, `formatDisplay`, `formatIssue`). The store's
+  ADD/UPDATE_PROPERTY and `validateBoard` now call `spec.validate`; the two
+  formatters and `createValueField` delegate to the table with plain defaults.
+  The per-type `if`-ladders and the store-closure validators are gone. Added the
+  `sequence` type: a relative path to a sequence-builder `.json` diagram,
+  validated by `validRelativePath` (same gate as image), displayed as its
+  filename, referenced (not embedded) in issues with backticks like image,
+  browses via the generalized `pickFilePath('sequence')` (File System Access
+  where available; `./diagrams/<name>` guess otherwise), and pilled in `--sky`.
+  Store/serializer/format paths are gated (Suite 3c + Suite 7/8 additions, 108
+  total); field DOM, picker, and pill are manual-verify. *One deliberate message
+  change:* `validateBoard`'s out-of-range date now reads "…must be between…"
+  (shared with the store) instead of "outside the accepted range"; the import
+  test regex was updated to match. Version bumped to **v0.2.0**.
+* **Dead code / drift swept.** Removed unused `.card.task-drop-before/after` CSS
+  (JS only ever set `card-drop-*`), a dead second arg on `renderCard(task)`, a
+  leftover `/* ADD THIS */` authoring note, a superseded card-color comment
+  block, and a loose `!=` that should have been `!==`.
 
 * **Task color — COMPLETE (store + UI).** Store carries `color` (canonical
   6-digit lowercase hex; `''` = none; validated by `validColor`; tolerant on
@@ -252,7 +282,8 @@ wire-mesh visual); `loadSaved()` visible-toast; panel dismiss `isConnected`
 guard; panel stays on-screen (`computePanelScroll`); **New Task** now creates
 directly with an inline-focused Title field and a de-duped default title
 (`uniqueDefaultTitle`, Suite 11 — no more `+ Task` prompt modal). All gated where
-gate-able; DOM behavior manual-verify. Gate is now 100/100 across 12 suites.
+gate-able; DOM behavior manual-verify. Gate is now 108/108 across 13 suites
+(Suite 3c — Sequence property contract, plus sequence additions to Suites 7/8).
 
 **Next task — OPEN.** No committed next feature. Multi-board (the prior "next
 frontier") is **FROZEN** pending a future concept that must be imagined first

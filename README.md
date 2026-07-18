@@ -4,7 +4,7 @@ A single-file, zero-dependency kanban board that runs straight from an HTML
 file — no build step, no framework, no server. Open it locally or host it on
 GitHub Pages.
 
-**Status:** alpha · **Tests:** 100/100 across 12 suites (headless) · **Deps:** none
+**Status:** alpha · **Tests:** 108/108 across 13 suites (headless) · **Deps:** none
 
 ---
 
@@ -23,9 +23,13 @@ GitHub Pages.
   than a pile of identical cards. A title you type yourself is never touched, so
   duplicate names are still allowed where you want them.
 * **Typed task properties** — attach `text`, `text (large)`, `date`, `link`,
-  or `image` properties to a task. Each type is validated on the way in and
-  formatted for readable display (a link shows its hostname, an image shows
-  its filename, a date shows a localized date).
+  `image`, or `sequence` properties to a task. Each type is validated on the way
+  in and formatted for readable display (a link shows its hostname, an image
+  shows its filename, a date shows a localized date). A `sequence` property holds
+  a relative path to a [sequence-builder](https://github.com/) UML `.json`
+  diagram kept next to this file — validated like an image path (relative only,
+  never encoded data) and, like an image, *referenced* rather than embedded so a
+  local path GitHub can't resolve is never a broken render.
 * **Task color** — give any task a color from a native swatch, or clear it back
   to none. Colored cards paint a *gradient under a wire mesh* — a soft diagonal
   glow of the color beneath a faint wireframe of the same hue — with a left
@@ -116,11 +120,24 @@ GitHub Pages.
   question, not this.)* The `isUlid` / `boardStorageKey` logic is pure and
   tested; the constant lives at boot.
 
+* **A property-type registry (Strategy table).** Everything type-specific about
+  a property — its dropdown label, the field the UI builds for it, its value
+  validator, and how it reads on a card and in a GitHub issue — lives in one
+  `PROP_TYPE_SPEC` row per type. Adding the `sequence` type was essentially one
+  new entry rather than a six-site edit across the store, `validateBoard`, the
+  field factory, and the two formatters. The validators and the display/issue
+  formatters in the table are pure and gated; the `field` entry is *data only* (a
+  descriptor the UI reads), so the DOM that builds fields stays on the UI side of
+  the store/UI line. `PROP_TYPES` and `PROP_TYPE_LABELS` derive from the table —
+  one source of truth, no parallel list to drift.
+
 * **Shared constants and validators, not duplicated magic.** One
   `GITHUB_URL_BYTE_LIMIT` serves both the issue-link truncation guard and the
-  large-text cap. One `validColor` is designed to serve both task color and a
-  future board-color picker. Reuse the existing number/validator rather than
-  inventing a fresh one that happens to match.
+  large-text cap. One `validColor` serves task color (and a future board-color
+  picker). The property-value validators (`validRelativePath` for image *and*
+  sequence, `validLongText`, `validDateValue`) are module-level and called by the
+  store *and* `validateBoard` — one definition each, so an ADD and an import
+  reject the same bad value with the same message instead of two that drift.
 
 * **Sandbox-safe in-page dialogs.** `showPromptDialog` / `showConfirmDialog`
   replace native `prompt()`/`confirm()`, which silently return `null` inside
@@ -135,12 +152,14 @@ GitHub Pages.
 
 ## Tests
 
-The board ships with **100 behavioral pin-down tests across 12 suites**, and
+The board ships with **108 behavioral pin-down tests across 13 suites**, and
 they run **headless — no browser required.**
 
 * **What they cover:** the full store contract (every action's accept/reject
   behavior, including column insertion to the right of a given column via
-  `ADD_COLUMN`'s `afterId`), the serializer (including the export→import→export
+  `ADD_COLUMN`'s `afterId`), the per-type property contract (including the
+  `sequence` type — accept, `data:`-URI reject on add/update/import, over-length
+  reject, and round-trip), the serializer (including the export→import→export
   round-trip), and every pure helper (positioning math, color validation, the
   de-duped default-title picker `uniqueDefaultTitle`, panel decisions,
   GitHub-link building, display formatting, and the deployment storage-key

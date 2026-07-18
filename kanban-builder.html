@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KanbanBuilder v0.1.0</title>
+<title>KanbanBuilder v0.2.0</title>
 <style>
   /* ══════════════════════════ THEMES ══════════════════════════ */
   :root {
@@ -19,6 +19,7 @@
     --violet:    #7b6fff;
     --pink:      #ff6b8a;
     --amber:     #f0c44a;
+    --sky:       #67d0ff;
     --danger:    #ff5c5c;
     --r1: 4px;
     --r2: 8px;
@@ -189,12 +190,6 @@
   .card.dragging { opacity: .4; }
   .card.card-drop-before { box-shadow: 0 -3px 0 0 var(--violet); }
   .card.card-drop-after  { box-shadow: 0  3px 0 0 var(--violet); }
-  .card.task-drop-before { box-shadow: 0 -3px 0 0 var(--violet); }
-  .card.task-drop-after  { box-shadow: 0  3px 0 0 var(--violet); }
-  /* task color = a left accent stripe painted from --card-color (set in renderCard).
-     A ::before overlay avoids shifting content and never collides with the
-     .selected / drop-indicator box-shadows above. Minimal by design; the
-     "gradient under a wire mesh" treatment is a deliberate later polish. */
   /* task color = a "gradient under a wire mesh": a soft diagonal glow of the
      color overlaid with a faint wireframe of the same color, over the normal
      surface so text contrast holds. The left ::before stripe stays as a solid
@@ -246,6 +241,7 @@
   a.pill { text-decoration: none; cursor: pointer; }
   a.pill:hover { text-decoration: underline; }
   .pill-image { background: #2a1a20; color: var(--pink);   border: 1px solid #ff6b8a30; }
+  .pill-sequence { background: #10283a; color: var(--sky); border: 1px solid #67d0ff30; }
 
   /* ══════════════════════════ PROPERTIES PANEL ══════════════════════════ */
 #panel {
@@ -262,7 +258,7 @@
     opacity: 0;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     
-    /* ADD THIS: Hide it from layout metrics entirely when closed */
+    /* Hide it from layout metrics entirely when closed. */
     visibility: hidden;
     
     /* Slide animation: width + opacity only (margin removed — board flex gap spaces the panel) */
@@ -390,7 +386,7 @@
 
 <div id="toolbar">
   <span id="app-title">Kanban<span class="accent">Builder</span></span>
-  <span id="app-version">v0.1.0</span>
+  <span id="app-version">v0.2.0</span>
   <span id="stats"></span>
   <button id="btn-import" title="Open a saved board from a JSON file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg> Open</button>
   <button id="btn-export" title="Save the current board to a JSON file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg> Save</button>
@@ -447,8 +443,7 @@
    mutate state and never emit 'change'. Visible errors over graceful
    degradation.
    ════════════════════════════════════════════════════════════════════ */
-const PROP_TYPES = ['text', 'text-large', 'date', 'link', 'image'];
-const PROP_TYPE_LABELS = { text: 'text', 'text-large': 'text (large)', date: 'date', link: 'link', image: 'image' };
+const PROP_TYPES = ['text', 'text-large', 'date', 'link', 'image', 'sequence'];
 const APP_ID = 'kanbanbuilder';
 const SCHEMA_VERSION = 1;
 const IMAGE_MAX_PATH = 500;
@@ -459,6 +454,62 @@ const DATE_MAX_ISO = '2100-12-31';
 // max length for a "text (large)" property: an existing, already-defended
 // number rather than a fresh one invented just for this.
 const GITHUB_URL_BYTE_LIMIT = 8191;
+
+/* ── Property-type registry (Strategy table) ──
+   One row per property type. Everything type-specific lives here so adding a
+   type is (essentially) one new entry rather than a six-site edit across the
+   store, validateBoard, the field factory, the display formatter, and the
+   issue formatter. Each row may carry:
+     label         — the human name shown in the type dropdown
+     field         — pure DESCRIPTOR the UI's createValueField reads (never DOM here)
+     validate(v)   — store + validateBoard value gate; returns error string | null
+     formatDisplay — compact card reading (pure); default = 40-char truncate
+     formatIssue   — one markdown line for the GitHub issue body; default = "name: value"
+   validate/formatDisplay/formatIssue are pure and gated. `field` is data only —
+   the DOM that reads it stays on the UI side of the store/UI line.
+   `sequence` = a relative path to a sequence-builder .json diagram; it reuses
+   the image path gate (validRelativePath) and, like image, is REFERENCED (not
+   embedded) so a local path GitHub can't resolve is never a broken <img>. */
+const PROP_TYPE_SPEC = {
+  'text': {
+    label: 'text',
+    field: { el: 'input', type: 'text' }
+  },
+  'text-large': {
+    label: 'text (large)',
+    field: { el: 'textarea' },
+    validate: validLongText
+  },
+  'date': {
+    label: 'date',
+    field: { el: 'input', type: 'date', min: DATE_MIN_ISO, max: DATE_MAX_ISO },
+    validate: validDateValue,
+    formatDisplay: p => { const d = new Date(p.value); return isNaN(d.getTime()) ? p.value : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); },
+    formatIssue: p => '- **' + p.name + '** (date): ' + p.value
+  },
+  'link': {
+    label: 'link',
+    field: { el: 'input', type: 'url', placeholder: 'https://…' },
+    formatDisplay: p => { try { return new URL(p.value).hostname; } catch (e) { return p.value; } },
+    formatIssue: p => '- **' + p.name + '** (link): ' + p.value
+  },
+  'image': {
+    label: 'image',
+    field: { el: 'input', type: 'text', placeholder: './images/photo.png', browse: 'image' },
+    validate: validRelativePath,
+    formatDisplay: p => p.value.split('/').pop(),
+    formatIssue: p => '- **' + p.name + '** (image reference, not embedded): `' + p.value + '`'
+  },
+  'sequence': {
+    label: 'sequence',
+    field: { el: 'input', type: 'text', placeholder: './diagrams/flow.json', browse: 'sequence' },
+    validate: validRelativePath,
+    formatDisplay: p => p.value.split('/').pop(),
+    formatIssue: p => '- **' + p.name + '** (sequence diagram, not embedded): `' + p.value + '`'
+  }
+};
+// Labels derive from the registry — one source of truth, no parallel map to drift.
+const PROP_TYPE_LABELS = Object.fromEntries(PROP_TYPES.map(t => [t, PROP_TYPE_SPEC[t].label]));
 
 function createStore(initialState) {
   let state = initialState || { columns: [], tasks: [] };
@@ -478,28 +529,6 @@ function createStore(initialState) {
       .sort((a, b) => a.order - b.order)
       .forEach((t, i) => t.order = i);
   }
-  function _validImagePath(value) {
-    if (typeof value !== 'string') return 'image value must be a string path';
-    if (/^data:/i.test(value.trim())) return 'image value must be a relative file path — data: URIs (base64) are not allowed in JSON';
-    if (value.length > IMAGE_MAX_PATH) return 'image path exceeds ' + IMAGE_MAX_PATH + ' chars — suspected encoded data, not a path';
-    return null;
-  }
-  function _validLongText(value) {
-    if (typeof value !== 'string') return 'text-large value must be a string';
-    if (value.length > GITHUB_URL_BYTE_LIMIT) return 'text-large value exceeds ' + GITHUB_URL_BYTE_LIMIT + ' characters';
-    return null;
-  }
-  function _validDateValue(value) {
-    if (typeof value !== 'string') return 'date value must be a string';
-    if (!value) return null; // blank is fine — not yet filled in
-    const d = new Date(value);
-    if (isNaN(d.getTime())) return 'date value "' + value + '" is not a valid date';
-    if (d < new Date(DATE_MIN_ISO) || d > new Date(DATE_MAX_ISO)) {
-      return 'date must be between ' + DATE_MIN_ISO + ' and ' + DATE_MAX_ISO + ' — got "' + value + '"';
-    }
-    return null;
-  }
-
   function _reject(error) { emit('error', error); return { ok: false, error }; }
   function _accept(payload) { emit('change', state); return { ok: true, ...payload }; }
 
@@ -625,16 +654,9 @@ function createStore(initialState) {
         const name = (action.name || '').trim();
         if (!name) return _reject('ADD_PROPERTY: name is required');
         const value = action.value !== undefined ? action.value : '';
-        if (action.propType === 'image') {
-          const err = _validImagePath(value);
-          if (err) return _reject('ADD_PROPERTY: ' + err);
-        }
-        if (action.propType === 'text-large') {
-          const err = _validLongText(value);
-          if (err) return _reject('ADD_PROPERTY: ' + err);
-        }
-        if (action.propType === 'date') {
-          const err = _validDateValue(value);
+        const addSpec = PROP_TYPE_SPEC[action.propType];
+        if (addSpec.validate) {
+          const err = addSpec.validate(value);
           if (err) return _reject('ADD_PROPERTY: ' + err);
         }
         const prop = { id: uid('prop'), name, type: action.propType, value };
@@ -653,16 +675,9 @@ function createStore(initialState) {
           prop.name = name;
         }
         if ('value' in action) {
-          if (prop.type === 'image') {
-            const err = _validImagePath(action.value);
-            if (err) return _reject('UPDATE_PROPERTY: ' + err);
-          }
-          if (prop.type === 'text-large') {
-            const err = _validLongText(action.value);
-            if (err) return _reject('UPDATE_PROPERTY: ' + err);
-          }
-          if (prop.type === 'date') {
-            const err = _validDateValue(action.value);
+          const upSpec = PROP_TYPE_SPEC[prop.type];
+          if (upSpec.validate) {
+            const err = upSpec.validate(action.value);
             if (err) return _reject('UPDATE_PROPERTY: ' + err);
           }
           prop.value = action.value;
@@ -755,19 +770,9 @@ function validateBoard(data) {
       if (!p || typeof p.id !== 'string' || !p.id) errors.push(pat + '.id must be a non-empty string');
       if (typeof p.name !== 'string' || !p.name.trim()) errors.push(pat + '.name must be a non-empty string');
       if (!PROP_TYPES.includes(p.type)) errors.push(pat + '.type must be one of ' + PROP_TYPES.join(', '));
-      if (p.type === 'image') {
-        if (typeof p.value !== 'string') errors.push(pat + '.value must be a string path');
-        else if (/^data:/i.test(p.value.trim())) errors.push(pat + '.value is a data: URI — images must be relative file paths, never encoded into JSON');
-        else if (p.value.length > IMAGE_MAX_PATH) errors.push(pat + '.value exceeds ' + IMAGE_MAX_PATH + ' chars — suspected encoded data');
-      }
-      if (p.type === 'text-large') {
-        if (typeof p.value !== 'string') errors.push(pat + '.value must be a string');
-        else if (p.value.length > GITHUB_URL_BYTE_LIMIT) errors.push(pat + '.value exceeds ' + GITHUB_URL_BYTE_LIMIT + ' characters');
-      }
-      if (p.type === 'date' && p.value) {
-        const d = new Date(p.value);
-        if (isNaN(d.getTime())) errors.push(pat + '.value "' + p.value + '" is not a valid date');
-        else if (d < new Date(DATE_MIN_ISO) || d > new Date(DATE_MAX_ISO)) errors.push(pat + '.value is outside the accepted range ' + DATE_MIN_ISO + '–' + DATE_MAX_ISO);
+      else {
+        const spec = PROP_TYPE_SPEC[p.type];
+        if (spec.validate) { const vErr = spec.validate(p.value); if (vErr) errors.push(pat + '.value: ' + vErr); }
       }
     });
   });
@@ -803,6 +808,35 @@ function computeDropIndex(siblingIdsExcludingSelf, hoveredId, insertAfter) {
   const pos = siblingIdsExcludingSelf.indexOf(hoveredId);
   if (pos === -1) return siblingIdsExcludingSelf.length; // hovered item not in list (e.g. dropped in empty space) → append
   return insertAfter ? pos + 1 : pos;
+}
+
+/* ── Shared property-value validators (pure, DOM-free) ──
+   Hoisted to module level so the store (ADD_PROPERTY / UPDATE_PROPERTY) and
+   validateBoard call ONE definition instead of drifting copies — the same
+   posture as validColor. Each returns an error string or null. Referenced by
+   PROP_TYPE_SPEC above; keyed there per type. validRelativePath serves both
+   image and sequence (both are relative file paths), so its message stays
+   file-generic rather than saying "image". */
+function validRelativePath(value) {
+  if (typeof value !== 'string') return 'value must be a string path';
+  if (/^data:/i.test(value.trim())) return 'value must be a relative file path — data: URIs (base64) are not allowed in JSON';
+  if (value.length > IMAGE_MAX_PATH) return 'value exceeds ' + IMAGE_MAX_PATH + ' chars — suspected encoded data, not a path';
+  return null;
+}
+function validLongText(value) {
+  if (typeof value !== 'string') return 'text-large value must be a string';
+  if (value.length > GITHUB_URL_BYTE_LIMIT) return 'text-large value exceeds ' + GITHUB_URL_BYTE_LIMIT + ' characters';
+  return null;
+}
+function validDateValue(value) {
+  if (typeof value !== 'string') return 'date value must be a string';
+  if (!value) return null; // blank is fine — not yet filled in
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return 'date value "' + value + '" is not a valid date';
+  if (d < new Date(DATE_MIN_ISO) || d > new Date(DATE_MAX_ISO)) {
+    return 'date must be between ' + DATE_MIN_ISO + ' and ' + DATE_MAX_ISO + ' — got "' + value + '"';
+  }
+  return null;
 }
 
 /* ── Color validation (shared: store UPDATE_TASK + UI board/task pickers) ──
@@ -900,10 +934,8 @@ function slugifyLabel(name) {
 }
 
 function formatPropertyForIssue(p) {
-  if (p.type === 'link')  return '- **' + p.name + '** (link): ' + p.value;
-  if (p.type === 'image') return '- **' + p.name + '** (image reference, not embedded): `' + p.value + '`';
-  if (p.type === 'date')  return '- **' + p.name + '** (date): ' + p.value;
-  return '- **' + p.name + '**: ' + p.value;
+  const spec = PROP_TYPE_SPEC[p.type];
+  return spec && spec.formatIssue ? spec.formatIssue(p) : '- **' + p.name + '**: ' + p.value;
 }
 
 /* Formats a property's value for compact display on a card — each type
@@ -912,16 +944,8 @@ function formatPropertyForIssue(p) {
    string. Pure and DOM-free, so it stays on the testable side of the line. */
 function formatPropertyValueForDisplay(p) {
   if (!p.value) return '(empty)';
-  if (p.type === 'date') {
-    const d = new Date(p.value);
-    return isNaN(d.getTime()) ? p.value : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  }
-  if (p.type === 'link') {
-    try { return new URL(p.value).hostname; } catch (e) { return p.value; }
-  }
-  if (p.type === 'image') {
-    return p.value.split('/').pop();
-  }
+  const spec = PROP_TYPE_SPEC[p.type];
+  if (spec && spec.formatDisplay) return spec.formatDisplay(p);
   return p.value.length > 40 ? p.value.slice(0, 40) + '…' : p.value;
 }
 
@@ -1293,6 +1317,51 @@ function runTests() {
     assert(!r.ok && /color/.test(r.error), r.error);
   });
 
+  SUITE('Suite 3c — Sequence property contract');
+  T('ADD_PROPERTY accepts a sequence type carrying a relative .json path', () => {
+    const { s, t1 } = seeded();
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'sequence', name: 'flow', value: './diagrams/checkout.json' });
+    assert(r.ok, JSON.stringify(r));
+    assert(s.getState().tasks[0].properties[0].type === 'sequence', 'type must persist as sequence');
+  });
+  T('PIN: sequence property rejects a data: URI on ADD (no encoded data in JSON)', () => {
+    const { s, t1 } = seeded();
+    const r = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'sequence', name: 'flow', value: 'data:application/json;base64,e30=' });
+    assert(!r.ok && /data:/.test(r.error), JSON.stringify(r));
+    assert(s.getState().tasks[0].properties.length === 0, 'must not create the property');
+  });
+  T('PIN: sequence property rejects a data: URI on UPDATE too, old path survives', () => {
+    const { s, t1 } = seeded();
+    const pid = s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'sequence', name: 'flow', value: './diagrams/a.json' }).id;
+    const r = s.dispatch({ type: 'UPDATE_PROPERTY', taskId: t1, propId: pid, value: 'DATA:application/json;base64,e30=' });
+    assert(!r.ok && /data:/i.test(r.error), JSON.stringify(r));
+    assert(s.getState().tasks[0].properties[0].value === './diagrams/a.json', 'old path must survive');
+  });
+  T('sequence path longer than the shared limit is rejected (suspected encoding)', () => {
+    const { s, t1 } = seeded();
+    const long = './' + 'x'.repeat(IMAGE_MAX_PATH + 1) + '.json';
+    assert(!s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'sequence', name: 'big', value: long }).ok);
+  });
+  T('PIN: a sequence property round-trips through export → import → export intact', () => {
+    const { s, t1 } = seeded();
+    s.dispatch({ type: 'ADD_PROPERTY', taskId: t1, propType: 'sequence', name: 'flow', value: './diagrams/checkout.json' });
+    const stamp = '2026-07-15T00:00:00.000Z';
+    const a = exportBoard(s.getState(), stamp);
+    const s2 = createStore();
+    assert(s2.dispatch({ type: 'IMPORT_BOARD', data: JSON.parse(JSON.stringify(a)) }).ok, 'import must accept its own export');
+    const b = exportBoard(s2.getState(), stamp);
+    assert(JSON.stringify(a) === JSON.stringify(b), 'round-trip drifted');
+  });
+  T('PIN: import rejects a sequence property carrying a data: URI', () => {
+    const s = fresh();
+    const data = { app: APP_ID, schemaVersion: 1, exportedAt: 'x',
+      columns: [{ id: 'c1', name: 'A', order: 0 }],
+      tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0,
+        properties: [{ id: 'p1', name: 'flow', type: 'sequence', value: 'data:application/json;base64,e30=' }] }] };
+    const r = s.dispatch({ type: 'IMPORT_BOARD', data });
+    assert(!r.ok && /data:/.test(r.error), r.error);
+  });
+
   SUITE('Suite 4 — Serialization contract');
   T('exportBoard emits canonical envelope {app, schemaVersion, exportedAt, columns, tasks}', () => {
     const { s } = seeded();
@@ -1362,7 +1431,7 @@ function runTests() {
       tasks: [{ id: 't1', title: 'T', createdDate: '2026-01-01T00:00:00.000Z', columnId: 'c1', order: 0,
         properties: [{ id: 'p1', name: 'due', type: 'date', value: '0006-06-06' }] }] };
     const r = s.dispatch({ type: 'IMPORT_BOARD', data });
-    assert(!r.ok && /outside the accepted range/.test(r.error), r.error);
+    assert(!r.ok && /between/.test(r.error), r.error);
   });
 
   SUITE('Suite 5 — Store mechanics');
@@ -1458,6 +1527,15 @@ function runTests() {
     assert(r.ok && r.truncated === false);
   });
 
+  T('PIN: a sequence property is referenced as a path in backticks, never a markdown image', () => {
+    const task = { id: 't1', title: 'X', createdDate: '2026-01-01T00:00:00.000Z',
+      properties: [{ id: 'p1', name: 'Flow', type: 'sequence', value: './diagrams/checkout.json' }] };
+    const r = buildGithubIssueUrl(task, 'To Do', 'me/repo');
+    const body = decodeURIComponent(new URL(r.url).searchParams.get('body'));
+    assert(body.includes('./diagrams/checkout.json') && !/!\[/.test(body), 'must reference the path, not embed it: ' + body);
+    assert(/sequence diagram/.test(body), 'should label it a sequence diagram: ' + body);
+  });
+
   SUITE('Suite 8 — Property display formatting (pure)');
   T('empty value formats as "(empty)" regardless of type', () => {
     ['text', 'date', 'link', 'image'].forEach(type => {
@@ -1492,6 +1570,10 @@ function runTests() {
     const long = 'x'.repeat(80);
     const out = formatPropertyValueForDisplay({ type: 'text', value: long });
     assert(out.length <= 41 && out.endsWith('…'), 'got length ' + out.length);
+  });
+
+  T('sequence: a path shows only the .json filename', () => {
+    assert(formatPropertyValueForDisplay({ type: 'sequence', value: './diagrams/checkout.json' }) === 'checkout.json');
   });
 
   SUITE('Suite 9 — Panel interaction (pure decision logic)');
@@ -1816,7 +1898,7 @@ function renderBoard(state) {
     if (tasks.length === 0) {
       $body.appendChild(el('div', 'col-empty', 'Drop a task here or add one below'));
     }
-    tasks.forEach(task => $body.appendChild(renderCard(task, tasks)));
+    tasks.forEach(task => $body.appendChild(renderCard(task)));
     $col.appendChild($body);
 
     /* footer */
@@ -2035,7 +2117,7 @@ function renderPanel(state) {
   if (!task) { 
 
     const mainLayout = document.getElementById("main");
-    if (mainLayout && $panel.parentElement != mainLayout) {
+    if (mainLayout && $panel.parentElement !== mainLayout) {
       mainLayout.appendChild($panel);
     }
 
@@ -2176,15 +2258,17 @@ function renderPanel(state) {
   let $browseBtn = null;
   function updateBrowseButton() {
     if ($browseBtn) { $browseBtn.remove(); $browseBtn = null; }
-    if ($sel.value === 'image') {
+    const spec = PROP_TYPE_SPEC[$sel.value];
+    const browseKind = spec && spec.field && spec.field.browse;
+    if (browseKind) {
       $browseBtn = el('button', null, '📁');
       $browseBtn.type = 'button';
-      $browseBtn.title = 'Browse for an image file';
+      $browseBtn.title = 'Browse for a ' + browseKind + ' file';
       $browseBtn.addEventListener('click', async () => {
-        const result = await pickImagePath();
+        const result = await pickFilePath(browseKind);
         if (!result) return;
         $valueInp.value = result.path;
-        if (!result.verified) showToast('Path guessed from filename — confirm it matches where the image actually lives', 'ok');
+        if (!result.verified) showToast('Path guessed from filename — confirm it matches where the file actually lives', 'ok');
       });
       $addRowBottom.insertBefore($browseBtn, $btn);
     }
@@ -2241,23 +2325,28 @@ function renderPanel(state) {
    Falls back to a plain <input type="file"> (filename-guess only,
    clearly marked unverified) everywhere else. Not covered by the headless
    test gate — needs a real browser file dialog to exercise. */
-let _imagesDirHandle = null; // granted once per session, in memory only
+const FILE_PICKER = {
+  image:    { label: 'image',            accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'] }, fallbackDir: 'images',   pickerId: 'kanbanbuilder-images' },
+  sequence: { label: 'sequence diagram', accept: { 'application/json': ['.json'] },                                 fallbackDir: 'diagrams', pickerId: 'kanbanbuilder-sequences' }
+};
+const _dirHandles = {}; // one granted directory handle per kind per session, in memory only
 
-async function pickImagePath() {
+async function pickFilePath(kind) {
+  const cfg = FILE_PICKER[kind] || FILE_PICKER.image;
   if ('showOpenFilePicker' in window) {
     try {
-      if (!_imagesDirHandle) {
-        showToast('Pick the folder your images live in (once per session)…');
-        _imagesDirHandle = await window.showDirectoryPicker({ id: 'kanbanbuilder-images', mode: 'read' });
+      if (!_dirHandles[kind]) {
+        showToast('Pick the folder your ' + cfg.label + ' files live in (once per session)…');
+        _dirHandles[kind] = await window.showDirectoryPicker({ id: cfg.pickerId, mode: 'read' });
       }
       const [fileHandle] = await window.showOpenFilePicker({
-        types: [{ description: 'Images', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'] } }]
+        types: [{ description: cfg.label, accept: cfg.accept }]
       });
-      const pathParts = await _imagesDirHandle.resolve(fileHandle);
+      const pathParts = await _dirHandles[kind].resolve(fileHandle);
       if (pathParts) return { path: './' + pathParts.join('/'), verified: true };
       const file = await fileHandle.getFile();
       showToast('That file is outside the granted folder — using its name as an unverified guess', 'error');
-      return { path: './images/' + file.name, verified: false };
+      return { path: './' + cfg.fallbackDir + '/' + file.name, verified: false };
     } catch (err) {
       if (err.name === 'AbortError') return null; // user cancelled a picker — not an error
       showToast('File picker failed: ' + err.message, 'error');
@@ -2268,10 +2357,10 @@ async function pickImagePath() {
   return new Promise(resolve => {
     const $input = document.createElement('input');
     $input.type = 'file';
-    $input.accept = 'image/*';
+    $input.accept = Object.keys(cfg.accept).concat(Object.values(cfg.accept).flat()).join(',');
     $input.addEventListener('change', () => {
       const file = $input.files[0];
-      resolve(file ? { path: './images/' + file.name, verified: false } : null);
+      resolve(file ? { path: './' + cfg.fallbackDir + '/' + file.name, verified: false } : null);
     }, { once: true });
     $input.click();
   });
@@ -2280,10 +2369,11 @@ async function pickImagePath() {
 /* Shared by the "add new property" row and each existing property's editor,
    so the two never drift out of sync on which field a property type gets.
    text-large gets a real <textarea> with a client-side maxLength as a soft
-   guard — the store's _validLongText is the actual gate; this just gives
+   guard — the shared validLongText is the actual gate; this just gives
    the user feedback before they hit it. */
 function createValueField(type, ariaLabel) {
-  if (type === 'text-large') {
+  const f = (PROP_TYPE_SPEC[type] && PROP_TYPE_SPEC[type].field) || { el: 'input', type: 'text' };
+  if (f.el === 'textarea') {
     const $ta = document.createElement('textarea');
     $ta.setAttribute('aria-label', ariaLabel);
     $ta.rows = 4;
@@ -2293,10 +2383,10 @@ function createValueField(type, ariaLabel) {
   }
   const $inp = document.createElement('input');
   $inp.setAttribute('aria-label', ariaLabel);
-  $inp.type = 'text';
-  if (type === 'date')  { $inp.type = 'date'; $inp.min = DATE_MIN_ISO; $inp.max = DATE_MAX_ISO; }
-  if (type === 'link')  { $inp.type = 'url'; $inp.placeholder = 'https://…'; }
-  if (type === 'image') $inp.placeholder = './images/photo.png';
+  $inp.type = f.type || 'text';
+  if (f.min) $inp.min = f.min;
+  if (f.max) $inp.max = f.max;
+  if (f.placeholder) $inp.placeholder = f.placeholder;
   return $inp;
 }
 
@@ -2324,19 +2414,22 @@ function renderPropRow(task, p) {
   });
   $row.appendChild($val);
 
-  if (p.type === 'image') {
+  const browseKind = PROP_TYPE_SPEC[p.type] && PROP_TYPE_SPEC[p.type].field && PROP_TYPE_SPEC[p.type].field.browse;
+  if (browseKind) {
     const $browseBtn = el('button', null, '📁 Browse…');
     $browseBtn.type = 'button';
     $browseBtn.addEventListener('click', async () => {
-      const result = await pickImagePath();
+      const result = await pickFilePath(browseKind);
       if (!result) return;
       $val.value = result.path;
       const r = store.dispatch({ type: 'UPDATE_PROPERTY', taskId: task.id, propId: p.id, value: result.path });
       if (!r.ok) { $val.value = p.value; showToast(r.error, 'error'); }
-      else if (!result.verified) showToast('Path guessed from filename — confirm it matches where the image actually lives', 'ok');
+      else if (!result.verified) showToast('Path guessed from filename — confirm it matches where the file actually lives', 'ok');
     });
     $row.appendChild($browseBtn);
-    $row.appendChild(el('div', 'hint', 'Relative path to the image file, kept next to this HTML file. Never pasted/encoded data.'));
+    $row.appendChild(el('div', 'hint', browseKind === 'sequence'
+      ? 'Relative path to the sequence-builder .json file, kept next to this HTML file. Never pasted/encoded data.'
+      : 'Relative path to the image file, kept next to this HTML file. Never pasted/encoded data.'));
   }
   if (p.type === 'link' && p.value) {
     const $a = document.createElement('a');
