@@ -8,6 +8,12 @@ GitHub Pages.
 
 ---
 
+## Live demo
+
+**[▶ Launch Kanban-builder](https://meatpopsci1972.github.io/kanban-builder/kanban-builder.html)**
+
+---
+
 ## Features
 
 * **Columns** — add, rename, delete, and reorder. Add is per-column: a `+`
