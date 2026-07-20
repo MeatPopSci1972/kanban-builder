@@ -10,7 +10,7 @@ GitHub Pages.
 
 ## Live demo
 
-**[▶ Launch Kanban-builder](https://meatpopsci1972.github.io/kanban-builder/kanban-builder.html)**
+**[▶ Launch kanban-builder](https://meatpopsci1972.github.io/Kanban-builder/Kanban-builder.html)**
 
 ---
 
